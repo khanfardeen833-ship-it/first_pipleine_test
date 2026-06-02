@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.4-mini
+slide_count : 15
+audience    : product leaders, executives, streaming platform stakeholders, investors
+tone        : cinematic-premium, editorial, investor-grade
+key_sections: The Platform and the Problem, The Product Story Across Four Months, Results and Future

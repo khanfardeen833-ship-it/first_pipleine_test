@@ -1,0 +1,36 @@
+{
+  "run": {
+    "id": "run-1779443116504",
+    "timestamp": 1779443264609,
+    "prompt": "I want presentaion about ai presentaion market study with lot of charts multiple charts in single slide",
+    "model": "global.anthropic.claude-opus-4-7",
+    "duration_seconds": 148.1,
+    "success": false
+  },
+  "output": {
+    "files": [],
+    "validation_passed": false,
+    "validation_results": []
+  },
+  "tokens": {
+    "input": 3728,
+    "output": 111,
+    "cache_write": 35396,
+    "cache_read": 202150
+  },
+  "cost": {
+    "sdk_reported": 0.80449,
+    "calculated": 0.343715
+  },
+  "agent": {
+    "turns": 17,
+    "tool_calls": 12,
+    "files_written": [
+      "C:\\Users\\khanf\\Desktop\\Presentation Desing\\Editor 4\\claude-presentations_2\\claude-presentations\\build.py"
+    ],
+    "bash_commands_count": 2,
+    "thinking_chars": 0,
+    "last_error": null,
+    "permission_denials": []
+  }
+}

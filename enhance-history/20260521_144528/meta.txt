@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.5
+slide_count : 15
+audience    : premium travelers, travel agencies, lifestyle brands, adventure seekers
+tone        : cinematic-premium, editorial-playful, luxury-travel
+key_sections: Arrival, Route, Cape Town, Coast, Wine, Garden Route, Safari, Johannesburg, Mountains, Finale

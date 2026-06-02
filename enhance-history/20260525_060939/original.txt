@@ -1,0 +1,1 @@
+Create a 15-slide deck on cloud architecture best practices, covering containerization, orchestration, microservices, serverless patterns, and deployment strategies. Use modern design with architecture diagrams and code snippets.

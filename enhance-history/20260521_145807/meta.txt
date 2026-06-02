@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-4o
+slide_count : 15
+audience    : media professionals, investors, cultural enthusiasts
+tone        : cinematic-premium, editorial-sophisticated
+key_sections: Narrative, Technology, Connection, Future

@@ -1,0 +1,1 @@
+Create a 15-slide presentation on machine learning deployment practices covering model selection, data pipelines, monitoring, and production optimization. Use clean, professional design with technical diagrams.

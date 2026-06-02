@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.5
+slide_count : 1
+audience    : travel lovers, lifestyle viewers, tourism storytellers, premium editorial presentation audiences
+tone        : cinematic-premium, playful-editorial, luxury-travel
+key_sections: South Africa Travel Poster, Cinematic Editorial Collage, Playful Destination Storytelling

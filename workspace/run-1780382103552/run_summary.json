@@ -1,0 +1,37 @@
+{
+  "run": {
+    "id": "run-1780382103552",
+    "timestamp": 1780382223386,
+    "prompt": "Create a 10-slide presentation about AI trends in 2026",
+    "model": "claude-opus-4-7",
+    "duration_seconds": 119.83,
+    "success": false,
+    "batches": 2
+  },
+  "output": {
+    "files": [],
+    "validation_passed": false,
+    "validation_results": []
+  },
+  "tokens": {
+    "input": 14,
+    "output": 134,
+    "cache_write": 71385,
+    "cache_read": 71199
+  },
+  "cost": {
+    "sdk_reported": 0.0,
+    "calculated": 0.48517575
+  },
+  "agent": {
+    "turns": 8,
+    "tool_calls": 3,
+    "files_written": [
+      "build.py"
+    ],
+    "bash_commands_count": 2,
+    "thinking_chars": 0,
+    "last_error": "'charmap' codec can't encode character '\\u2192' in position 697: character maps to <undefined>",
+    "permission_denials": []
+  }
+}

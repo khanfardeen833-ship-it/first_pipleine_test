@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.5
+slide_count : 15
+audience    : adventurous travelers, luxury travel clients, travel agencies, culture lovers, families, and destination marketers
+tone        : cinematic-premium, playful-editorial, travel-documentary
+key_sections: Wild Roads, Coastal Dreams & City Magic, Memory, Motion & the Call to Return

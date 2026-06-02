@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.5
+slide_count : 14
+audience    : Prospective UC Berkeley applicants, parents, high school counselors, college advisors, and educators seeking a sophisticated overview of Berkeley-style holistic admissions.
+tone        : Premium, cinematic, educational, strategic, empathetic, and inspirational.
+key_sections: Opening cinematic framing, Holistic admissions philosophy, Admissions landscape and selectivity, UC application anatomy, Context and academic preparation, Major readiness, Personal Insight Questions, Activities and impact, Common myths, Applicant strategy framework, Inspirational closing

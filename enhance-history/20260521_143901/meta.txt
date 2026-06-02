@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.5
+slide_count : 15
+audience    : investors, SaaS founders, product strategists, enterprise buyers, market analysts
+tone        : cinematic-corporate, investor-grade, editorial-polished
+key_sections: Market Emergence, Competitive Landscape, Customer Segments, Monetization, Regional Opportunity, Strategic Outlook

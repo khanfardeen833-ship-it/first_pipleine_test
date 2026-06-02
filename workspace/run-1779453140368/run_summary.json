@@ -1,0 +1,34 @@
+{
+  "run": {
+    "id": "run-1779453140368",
+    "timestamp": 1779453140559,
+    "prompt": "single slide about coffee",
+    "model": "global.anthropic.claude-opus-4-7",
+    "duration_seconds": 0.19,
+    "success": false
+  },
+  "output": {
+    "files": [],
+    "validation_passed": false,
+    "validation_results": []
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "cache_write": 0,
+    "cache_read": 0
+  },
+  "cost": {
+    "sdk_reported": 0.0,
+    "calculated": 0.0
+  },
+  "agent": {
+    "turns": 0,
+    "tool_calls": 0,
+    "files_written": [],
+    "bash_commands_count": 0,
+    "thinking_chars": 0,
+    "last_error": "Claude Code not found at: C:\\Users\\khanf\\AppData\\Roaming\\Python\\Python313\\site-packages\\claude_agent_sdk\\_bundled\\claude.exe",
+    "permission_denials": []
+  }
+}

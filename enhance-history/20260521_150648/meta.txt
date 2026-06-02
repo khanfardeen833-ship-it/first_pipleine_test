@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.4-mini
+slide_count : 15
+audience    : product teams, executives, platform stakeholders, stakeholders
+tone        : cinematic-premium, editorial-polish, investor-grade
+key_sections: Platform Story, Month-by-Month Evolution, Outcomes, Insight, Future

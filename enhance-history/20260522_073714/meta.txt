@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.4-mini
+slide_count : 15
+audience    : travelers, tourism brands, lifestyle audiences
+tone        : cinematic-premium, editorial-playful, aspirational
+key_sections: Style Direction, Core Artistic Direction, Color Palette, Typography, Layout System, Animation Style, Visual Requirements, Slide-by-Slide Structure, Final AI Instructions

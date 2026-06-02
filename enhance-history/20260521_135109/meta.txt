@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.5
+slide_count : 15
+audience    : Prospective UC Berkeley applicants, parents, high school counselors, admissions consultants, and educators seeking a clear, sophisticated understanding of the Berkeley admissions process.
+tone        : Professional, cinematic, insightful, empowering, transparent, and strategy-driven.
+key_sections: Admissions Philosophy, UC Application Architecture, Academic Preparation, Test-Free Review, Activities and Impact, Personal Insight Questions, Major and College Fit, Contextual Review, Timeline and Process, Myths vs Reality, Applicant Control Strategy

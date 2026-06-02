@@ -1,0 +1,6 @@
+provider    : OpenAI
+model       : gpt-5.4-mini
+slide_count : 15
+audience    : travelers, tourism audiences, culture lovers, lifestyle viewers
+tone        : cinematic-premium, editorial-polished, playful
+key_sections: Arrival, Discovery, Culture, Landscapes, Farewell

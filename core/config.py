@@ -21,7 +21,7 @@ ELEM_SKILLS  = SKILLS_DIR / "elements"
 SKILLS_INDEX = SKILLS_DIR / "00-index.md"
 WORKSPACE    = PROJECT_DIR / "workspace"
 VALIDATOR    = PROJECT_DIR / "validate.py"
-PROMPTS_DIR  = PROJECT_DIR / "prompts"
+PROMPTS_DIR  = SKILLS_DIR / "prompts"
 
 CORE_SKILL_FILES = [
     "01-envelope.md",
@@ -66,8 +66,8 @@ def preflight():
     if not VALIDATOR.exists():
         problems.append(f"validator not found: {VALIDATOR}")
 
-    if not PROMPTS_DIR.exists():
-        problems.append(f"prompts directory not found: {PROMPTS_DIR}")
+    if not (PROMPTS_DIR / "system_prompt.md").exists():
+        problems.append(f"system_prompt template not found: {PROMPTS_DIR / 'system_prompt.md'}")
 
     if problems:
         print("PRE-FLIGHT FAILED:")

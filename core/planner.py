@@ -17,84 +17,83 @@ import anthropic
 
 
 _OUTLINE_SYSTEM = """\
-You are a senior presentation strategist. Your outlines are used directly to \
-generate slide decks — every field must be precise, specific, and data-driven.
+You are a world-class presentation writer. Think like the team behind Gamma, \
+Andreessen Horowitz memos, and TED Talk scripts — clear, opinionated, grounded \
+in what is actually happening right now.
 
-Respond with ONLY valid JSON — no markdown, no commentary, no code fences.
+Respond with ONLY valid JSON — no markdown fences, no commentary.
 
 ━━━ OUTPUT SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {
-  "title": "<short, bold deck title — 4-6 words max>",
-  "theme": "<one-word tone: urgent|innovative|authoritative|inspiring|analytical>",
-  "audience": "<who this is for: executives|investors|engineers|general|customers>",
+  "title": "<punchy deck title — 5-8 words, provocative or insightful>",
+  "subtitle": "<one sentence that expands the title — what the audience will learn>",
+  "theme": "<urgent|innovative|analytical|inspiring|cautionary>",
+  "audience": "<executives|investors|engineers|general|students|policymakers>",
   "slides": [
     {
       "slide_number": 1,
-      "title": "<concise slide title — 4-6 words>",
-      "type": "<see TYPES below>",
-      "narrative_role": "<hook|problem|evidence|insight|solution|proof|objection|cta>",
-      "headline": "<one specific claim — include a number if possible — max 12 words>",
-      "key_points": ["<specific data point or action>", "..."],
-      "visual": "<precise visual instruction — chart type, axes, key data, layout>",
+      "title": "<slide title — clear, specific, 4-7 words>",
+      "type": "<hero|trend|context|stat|comparison|challenges|outlook|closing>",
+      "points": [
+        "<point 1 — one clear, natural sentence>",
+        "<point 2>",
+        "<point 3>"
+      ],
+      "speaker_note": "<what the presenter should say in 1-2 sentences — the 'why this matters'>",
+      "visual": "<what to show: chart type / layout / key visual element>",
       "bg": "<light|dark>"
     }
   ]
 }
 
 ━━━ SLIDE TYPES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-hero         Opening statement or closing statement slide. Bold typography only.
-             Use for: slide 1 (always) and optionally the final slide.
-stat         One number IS the entire message. Put the number in the headline.
-             Example headline: "Diagnoses improved by 94%"
-chart        Trend, growth, or comparison data. Specify chart type in visual.
-             Example visual: "Line chart: x=2020-2030, y=0-100%, two lines EV vs ICE"
-comparison   Two sides: before/after, old/new, us/them. Two-column layout.
-three_column Three parallel pillars of equal importance. Icon + title + body each.
-table        Structured rows × columns data. Specify column headers in visual.
-timeline     Sequential events or phases. Specify 3-5 milestones with dates.
-quote        One specific person's exact words that validate the slide's claim.
-             Include the person's name and title in key_points.
-closing      Final call-to-action. What should the audience do RIGHT NOW?
+hero        Opening slide. Bold provocative statement. Sets the stage.
+context     Before/after, then/now, landscape overview. 2-3 framing points.
+trend       "Trend N: [Name]" — one major shift. 2-3 concrete signals of it.
+stat        One big number tells the whole story. Surround with context.
+comparison  Two sides: old vs new, leaders vs laggards, us vs them.
+challenges  The real problems, tensions, risks. Honest and grounded.
+outlook     What happens next. Predictions with reasoning, not just hope.
+closing     Final thought. What the audience should do or remember.
 
-━━━ HEADLINE QUALITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Every headline must make ONE specific, surprising claim.
-Include a real number whenever possible.
+━━━ CONTENT QUALITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✗ BAD  "AI is transforming healthcare"
-✓ GOOD "AI matches radiologists in detecting breast cancer — 94.5% accuracy"
+TITLE quality:
+✗ "Artificial Intelligence Overview"
+✓ "AI in 2026: From Hype to Enterprise Reality"
+✓ "The Shifting AI Landscape: 2025 vs. 2026"
 
-✗ BAD  "The market is growing rapidly"
-✓ GOOD "EV market hits $623B in 2024, tripling in 3 years"
+POINTS quality — short, natural, specific. Mix data + narrative + examples:
+✗ "Adoption is increasing across industries."
+✓ "2025: Focus on AGI debates and model-layer breakthroughs."
+✓ "58% of companies report limited use of physical AI today, projected to reach 80% in two years."
+✓ "Chinese LLMs like DeepSeek-R1 are challenging US dominance."
+✓ "IBM's vision: everyone becomes an 'AI composer.'"
+✓ "Example: Sales reps receiving real-time insights and actions during customer calls."
 
-✗ BAD  "We need to act on climate change"
-✓ GOOD "18 months to prevent 1.5°C — the window closes in 2026"
+Points must be:
+- Short (under 20 words each)
+- Either a real data point, a named example, or a sharp observation
+- Conversational — not consultant-speak
+- 2-3 per slide (never more than 4)
 
-━━━ KEY POINTS QUALITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Specific, data-driven, no vague claims. 2-4 points per slide.
+NAMED ENTITIES — always use real names when possible:
+Companies: OpenAI, Anthropic, Google DeepMind, Microsoft, Nvidia, IBM, Meta, DeepSeek
+People: Sam Altman, Demis Hassabis, Jensen Huang, Satya Nadella
+Products: GPT-4o, Claude 3.5, Gemini Ultra, Llama 3, DeepSeek-R1
+Events/laws: EU AI Act, US Executive Order on AI, NIST AI RMF, China's Gen-AI Rules
 
-✗ BAD  "Adoption is growing rapidly"
-✓ GOOD "Enterprise AI spend: $67B in 2024, up 28% YoY (Gartner)"
+SPEAKER NOTES — this is the insight the presenter adds verbally:
+✗ "This slide talks about AI trends."
+✓ "The key tension here is speed vs. control — most companies are moving fast on AI but still haven't figured out governance."
 
-✗ BAD  "Customers are satisfied"
-✓ GOOD "NPS score jumped from 34 to 71 after AI rollout"
-
-━━━ VISUAL QUALITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Describe exactly what to draw — designer should need no imagination to execute.
-
-✗ BAD  "Chart showing growth over time"
-✓ GOOD "Area chart: x=2019-2024, y=0-500M users, shaded area under curve, \
-label at 2024 peak '487M'"
-
-✗ BAD  "Three boxes with icons"
-✓ GOOD "Three cards left-to-right: (1) Battery icon + '1000mi range' (2) Bolt \
-icon + '15min charge' (3) Dollar icon + '$45k avg price'. Dark card, white text."
-
-━━━ NARRATIVE RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Slide 1: always hero + narrative_role=hook
-- Last slide: always closing + narrative_role=cta
-- Build a clear arc: hook → problem → evidence → insight → solution → proof → cta
-- Alternate dark/light backgrounds for visual rhythm
-- Never repeat the same slide type more than twice consecutively
+━━━ STRUCTURE RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Slide 1: always type=hero
+- Last slide: always type=closing
+- Alternate dark/light backgrounds
+- Trend decks: use "Trend N: [Name]" as title for trend slides
+- Tell a complete story: context → trends → challenges → outlook → action
+- Never repeat the same slide type 3 times in a row
 """
 
 
@@ -112,11 +111,13 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
         f"TOPIC / BRIEF:\n{user_prompt}\n\n"
         f"REQUIREMENTS:\n"
         f"- Exactly {total_slides} slides\n"
-        f"- Slide 1 must be type=hero, narrative_role=hook\n"
-        f"- Slide {total_slides} must be type=closing, narrative_role=cta\n"
-        f"- Every headline must contain a specific number or data point\n"
-        f"- Every visual description must be specific enough to draw without guessing\n"
-        f"- Build a clear story arc across all {total_slides} slides\n\n"
+        f"- Slide 1 must be type=hero\n"
+        f"- Slide {total_slides} must be type=closing\n"
+        f"- Use real company names, products, and current events — no generic placeholders\n"
+        f"- Each point must be a short, natural sentence (under 20 words)\n"
+        f"- Mix data points, named examples, and sharp observations in the points\n"
+        f"- speaker_note tells the presenter what to say verbally about each slide\n"
+        f"- Tell a complete story across all {total_slides} slides\n\n"
         f"Return ONLY the JSON object."
     )
 
@@ -146,11 +147,14 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
 
     outline = json.loads(raw)
 
-    # Normalise: ensure required fields are always present
+    # Normalise: ensure required fields always present
     for i, slide in enumerate(outline.get("slides", []), start=1):
         slide.setdefault("slide_number", i)
-        slide.setdefault("narrative_role", "")
+        slide.setdefault("speaker_note", "")
         slide.setdefault("bg", "dark" if i % 2 == 1 else "light")
+        # support both 'points' (new) and 'key_points' (legacy) field names
+        if "key_points" in slide and "points" not in slide:
+            slide["points"] = slide.pop("key_points")
 
     in_tok  = response.usage.input_tokens
     out_tok = response.usage.output_tokens
@@ -171,17 +175,16 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
 
 def print_outline(outline: dict) -> None:
     """Pretty-print the outline to the console."""
-    print(f"\n{'='*64}")
-    print(f"  DECK:     {outline.get('title', 'Untitled')}")
-    print(f"  Theme:    {outline.get('theme', '')}   Audience: {outline.get('audience', '')}")
-    print(f"{'='*64}")
+    print(f"\n{'='*66}")
+    print(f"  {outline.get('title', 'Untitled')}")
+    print(f"  {outline.get('subtitle', '')}")
+    print(f"  theme={outline.get('theme','')}  audience={outline.get('audience','')}")
+    print(f"{'='*66}")
     for s in outline.get("slides", []):
-        bg_tag  = "[dark]" if s.get("bg") == "dark" else "[light]"
-        role    = s.get("narrative_role", "")
-        print(f"\n  Slide {s['slide_number']:>2} — {s['title']}  {bg_tag}  ({role})")
-        print(f"     type: {s.get('type', '?')}")
-        print(f" headline: {s.get('headline', '')}")
-        for pt in s.get("key_points", []):
-            print(f"      pt: {pt}")
-        print(f"   visual: {s.get('visual', '')}")
-    print(f"\n{'='*64}\n")
+        bg_tag = "[dark]" if s.get("bg") == "dark" else "[light]"
+        print(f"\n  Slide {s['slide_number']:>2} — {s['title']}  [{s.get('type','?')}]  {bg_tag}")
+        for pt in s.get("points", s.get("key_points", [])):
+            print(f"    • {pt}")
+        if s.get("speaker_note"):
+            print(f"    ↳ {s['speaker_note']}")
+    print(f"\n{'='*66}\n")

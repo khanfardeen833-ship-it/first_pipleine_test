@@ -46,18 +46,54 @@ async def claim_pending_presentation() -> dict | None:
     Atomically find one pending presentation and mark it 'processing'.
     Returns the document (pre-update) or None if nothing is pending.
 
-    Using find_one_and_update ensures only one worker processes each doc
-    even if multiple workers run concurrently.
+    Processes newest submissions first so a re-submitted prompt always
+    gets a fresh outline, not an old queued one.
     """
-    from bson import ObjectId
     db = _get_db()
     doc = await db.presentations.find_one_and_update(
         {"status": "pending"},
         {"$set": {"status": "processing", "updatedAt": _now()}},
-        sort=[("createdAt", 1)],   # oldest first
-        return_document=False,     # return the doc BEFORE update
+        sort=[("createdAt", -1)],  # newest first — prevents stale re-submissions
+        return_document=False,
     )
     return doc
+
+
+async def find_or_create_presentation(
+    user_id: str,
+    prompt: str,
+    slides: int,
+) -> tuple:
+    """
+    Idempotent: if a pending/processing presentation with the same
+    userId + prompt already exists, return it instead of creating a duplicate.
+
+    Returns (presentation_id: str, created: bool).
+    """
+    from bson import ObjectId
+    db = _get_db()
+
+    # Check for an existing active (pending or processing) submission
+    existing = await db.presentations.find_one({
+        "userId": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id,
+        "prompt": prompt.strip(),
+        "status": {"$in": ["pending", "processing"]},
+    })
+    if existing:
+        return str(existing["_id"]), False
+
+    # Nothing active — create a new one
+    now = _now()
+    result = await db.presentations.insert_one({
+        "userId": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id,
+        "prompt": prompt.strip(),
+        "slides": slides,
+        "status": "pending",
+        "createdAt": now,
+        "updatedAt": now,
+        "__v": 0,
+    })
+    return str(result.inserted_id), True
 
 
 async def mark_presentation_done(presentation_id, outline_id: str) -> None:

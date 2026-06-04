@@ -118,27 +118,24 @@ async def health():
 @app.post("/api/presentations", status_code=201)
 async def create_presentation(body: CreatePresentationRequest):
     """
-    Frontend calls this when the user submits a prompt.
-    Creates a pending presentation — the worker picks it up via change stream
-    and generates the outline automatically.
+    Submit a prompt to generate a presentation outline.
+    Idempotent: if the same userId + prompt is already pending/processing,
+    returns the existing presentationId instead of creating a duplicate.
     """
-    db = storage._get_db()
-    now = datetime.now(timezone.utc)
-    doc = {
-        "userId":    ObjectId(body.userId) if ObjectId.is_valid(body.userId) else body.userId,
-        "prompt":    body.prompt.strip(),
-        "slides":    body.slides,
-        "status":    "pending",
-        "createdAt": now,
-        "updatedAt": now,
-        "__v": 0,
-    }
-    result = await db.presentations.insert_one(doc)
-    pid = str(result.inserted_id)
+    pid, created = await storage.find_or_create_presentation(
+        user_id=body.userId,
+        prompt=body.prompt,
+        slides=body.slides,
+    )
     return {
         "presentationId": pid,
         "status": "pending",
-        "message": "Outline is being generated — poll GET /api/presentations/{id} for status."
+        "created": created,
+        "message": (
+            "Outline is being generated — poll GET /api/presentations/{id} for status."
+            if created else
+            "This prompt is already being processed — use the existing presentationId."
+        ),
     }
 
 

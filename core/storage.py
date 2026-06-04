@@ -59,30 +59,19 @@ async def claim_pending_presentation() -> dict | None:
     return doc
 
 
-async def find_or_create_presentation(
+async def create_presentation(
     user_id: str,
     prompt: str,
     slides: int,
-) -> tuple:
+) -> str:
     """
-    Idempotent: if a pending/processing presentation with the same
-    userId + prompt already exists, return it instead of creating a duplicate.
+    Create a new presentation document. Always creates a fresh document
+    with a new ID — same prompt submitted twice = two independent presentations.
 
-    Returns (presentation_id: str, created: bool).
+    Returns the new presentation_id (str).
     """
     from bson import ObjectId
     db = _get_db()
-
-    # Check for an existing active (pending or processing) submission
-    existing = await db.presentations.find_one({
-        "userId": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id,
-        "prompt": prompt.strip(),
-        "status": {"$in": ["pending", "processing"]},
-    })
-    if existing:
-        return str(existing["_id"]), False
-
-    # Nothing active — create a new one
     now = _now()
     result = await db.presentations.insert_one({
         "userId": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id,
@@ -93,7 +82,7 @@ async def find_or_create_presentation(
         "updatedAt": now,
         "__v": 0,
     })
-    return str(result.inserted_id), True
+    return str(result.inserted_id)
 
 
 async def mark_presentation_done(presentation_id, outline_id: str) -> None:

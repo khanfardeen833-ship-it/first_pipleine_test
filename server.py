@@ -119,10 +119,10 @@ async def health():
 async def create_presentation(body: CreatePresentationRequest):
     """
     Submit a prompt to generate a presentation outline.
-    Idempotent: if the same userId + prompt is already pending/processing,
-    returns the existing presentationId instead of creating a duplicate.
+    Every submission creates a fresh presentation with a new unique ID.
+    Same prompt submitted twice = two independent presentations, two outlines.
     """
-    pid, created = await storage.find_or_create_presentation(
+    pid = await storage.create_presentation(
         user_id=body.userId,
         prompt=body.prompt,
         slides=body.slides,
@@ -130,12 +130,7 @@ async def create_presentation(body: CreatePresentationRequest):
     return {
         "presentationId": pid,
         "status": "pending",
-        "created": created,
-        "message": (
-            "Outline is being generated — poll GET /api/presentations/{id} for status."
-            if created else
-            "This prompt is already being processed — use the existing presentationId."
-        ),
+        "message": "Outline is being generated — poll GET /api/presentations/{id} for status.",
     }
 
 

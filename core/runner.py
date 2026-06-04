@@ -18,6 +18,8 @@ from core.renderer import render_message
 from core.prompt import build_system_prompt
 from core.pricing import fmt_money
 from core.merger import merge_presentations
+from core.planner import generate_outline, print_outline
+from core import storage
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +137,7 @@ async def run_batch_agent(
     total_slides: int,
     id_offset: int,
     batch_dir: Path,
+    slide_plan: dict = None,
 ) -> tuple:
     batch_size = slide_end - slide_start + 1
     label = f"batch-{slide_start}-{slide_end}"
@@ -148,7 +151,23 @@ BATCH CONSTRAINT: Generate ONLY slides {slide_start}–{slide_end} of {total_sli
   The final merged deck will combine all batches; focus only on your assigned slides.
 """
 
-    system_prompt = build_system_prompt(extra=batch_constraint)
+    # Inject the pre-approved outline for this batch's slides as design guidance
+    outline_context = ""
+    if slide_plan:
+        batch_slides = [
+            s for s in slide_plan.get("slides", [])
+            if slide_start <= s.get("slide_number", 0) <= slide_end
+        ]
+        if batch_slides:
+            outline_context = (
+                "\n\nSLIDE OUTLINE (pre-approved structure — follow this plan):\n"
+                + json.dumps(batch_slides, indent=2)
+                + "\n\nUse the title, type, headline, key_points, and visual hint from "
+                "each slide entry as your design brief. You may enrich the visuals "
+                "but must preserve the content direction.\n"
+            )
+
+    system_prompt = build_system_prompt(extra=batch_constraint + outline_context)
     batch_dir.mkdir(parents=True, exist_ok=True)
 
     tracker = await _run_single_agent(user_prompt, system_prompt, batch_dir, label)
@@ -156,10 +175,141 @@ BATCH CONSTRAINT: Generate ONLY slides {slide_start}–{slide_end} of {total_sli
 
 
 # ---------------------------------------------------------------------------
+# Step 1: Create run + generate outline only (frontend shows this for editing)
+# ---------------------------------------------------------------------------
+async def create_outline(
+    user_prompt: str,
+    total_slides: int = 15,
+    batch_size: int = 5,
+) -> dict:
+    """
+    Phase 1 of the two-step pipeline.
+
+    Creates the run directory, generates a slide-by-slide outline using
+    Haiku (~15s), saves it to outline.json, and returns:
+      {
+        "run_id":     "run-1234567890",
+        "run_dir":    "/path/to/workspace/run-...",
+        "outline":    { "title": ..., "slides": [...] },
+        "total_slides": 15,
+        "batch_size": 5,
+      }
+
+    The frontend shows the outline to the user. When the user approves
+    (with or without edits), pass the returned run_id + edited outline
+    to generate_from_outline().
+    """
+    run_id  = f"run-{int(time.time() * 1000)}"
+    run_dir = WORKSPACE / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n--- run created ---")
+    print(f"  run_id:  {run_id}")
+    print(f"  prompt:  {user_prompt[:120]}")
+    print(f"  slides:  {total_slides}")
+
+    outline = None
+    try:
+        outline = await generate_outline(user_prompt, total_slides, run_dir)
+        print_outline(outline)
+    except Exception as e:
+        print(f"\n  [planner] outline failed ({e})")
+
+    # Persist to MongoDB
+    try:
+        await storage.save_outline(run_id, user_prompt, total_slides, batch_size, outline)
+        print(f"  [mongo] outline saved -> presentations/{run_id}")
+    except Exception as e:
+        print(f"  [mongo] save_outline failed ({e}) — continuing")
+
+    # Persist run metadata so generate_from_outline can resume without re-reading config
+    meta = {
+        "run_id": run_id,
+        "user_prompt": user_prompt,
+        "total_slides": total_slides,
+        "batch_size": batch_size,
+        "outline_generated": outline is not None,
+    }
+    (run_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    return {
+        "run_id": run_id,
+        "run_dir": str(run_dir),
+        "outline": outline,
+        "total_slides": total_slides,
+        "batch_size": batch_size,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Generate slides from an (optionally edited) outline
+# ---------------------------------------------------------------------------
+async def generate_from_outline(run_id: str, outline: dict) -> None:
+    """
+    Phase 2 of the two-step pipeline.
+
+    Accepts a run_id (from create_outline) and an outline dict — which may
+    have been edited by the user on the frontend. Fires the parallel Opus
+    batches using the outline as the design brief, then merges and validates.
+
+    The edited outline is re-saved to outline.json so the final run
+    directory always reflects what was actually used for generation.
+    """
+    run_dir = WORKSPACE / run_id
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+
+    # Load original metadata
+    meta_path = run_dir / "run_meta.json"
+    if not meta_path.exists():
+        raise FileNotFoundError(f"run_meta.json missing in {run_dir}")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+    user_prompt  = meta["user_prompt"]
+    total_slides = meta["total_slides"]
+    batch_size   = meta["batch_size"]
+
+    # Persist the (possibly edited) outline back to disk and MongoDB
+    (run_dir / "outline.json").write_text(
+        json.dumps(outline, indent=2), encoding="utf-8"
+    )
+    try:
+        await storage.update_outline(run_id, outline)
+        await storage.set_generating(run_id)
+        print(f"  [mongo] outline updated, status -> generating")
+    except Exception as e:
+        print(f"  [mongo] update_outline failed ({e}) — continuing")
+
+    print(f"\n--- generating slides from outline ---")
+    print(f"  run_id:  {run_id}")
+    print(f"  slides:  {total_slides}  |  batch_size: {batch_size}")
+    print(f"  outline: {len(outline.get('slides', []))} slides defined")
+
+    batches = []
+    slide_num = 1
+    batch_idx = 0
+    while slide_num <= total_slides:
+        end = min(slide_num + batch_size - 1, total_slides)
+        id_offset = batch_idx * 300
+        batch_dir = run_dir / f"batch-{slide_num}-{end}"
+        batches.append((slide_num, end, id_offset, batch_dir))
+        slide_num = end + 1
+        batch_idx += 1
+
+    await _run_batches_and_merge(run_id, run_dir, user_prompt, total_slides,
+                                  batches, outline)
+
+
+# ---------------------------------------------------------------------------
 # Parallel runner — splits deck into batches, gathers, merges
+# (kept for one-shot use; internally calls create_outline + generate_from_outline)
 # ---------------------------------------------------------------------------
 async def run_parallel_agent(user_prompt: str, total_slides: int = 15, batch_size: int = 5):
-    model   = os.environ["ANTHROPIC_MODEL"]
+    """
+    One-shot runner: outline → (no pause) → generate → merge → validate.
+    Use create_outline() + generate_from_outline() for the two-step flow
+    where the frontend can review and edit the outline before generation.
+    """
     run_id  = f"run-{int(time.time() * 1000)}"
     run_dir = WORKSPACE / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -180,10 +330,36 @@ async def run_parallel_agent(user_prompt: str, total_slides: int = 15, batch_siz
         slide_num = end + 1
         batch_idx += 1
 
+    # ── Step 1: Generate slide outline (Haiku, ~10-20s) ──────────────────────
+    outline = None
+    try:
+        outline = await generate_outline(user_prompt, total_slides, run_dir)
+        print_outline(outline)
+    except Exception as e:
+        print(f"\n  [planner] outline generation failed ({e}) — continuing without outline")
+
+    # ── Step 2: Parallel Opus batch generation ────────────────────────────────
+    await _run_batches_and_merge(run_id, run_dir, user_prompt, total_slides,
+                                  batches, outline)
+
+
+# ---------------------------------------------------------------------------
+# Internal: run batches + merge + validate + write summary
+# ---------------------------------------------------------------------------
+async def _run_batches_and_merge(
+    run_id: str,
+    run_dir: Path,
+    user_prompt: str,
+    total_slides: int,
+    batches: list,
+    outline,          # dict | None
+) -> None:
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
     start_time = time.time()
 
     tasks = [
-        run_batch_agent(user_prompt, s, e, total_slides, off, bd)
+        run_batch_agent(user_prompt, s, e, total_slides, off, bd,
+                        slide_plan=outline)
         for s, e, off, bd in batches
     ]
     results = await asyncio.gather(*tasks)
@@ -286,6 +462,33 @@ async def run_parallel_agent(user_prompt: str, total_slides: int = 15, batch_siz
         },
     }
     write_run_summary(run_dir, summary)
+
+    # Persist final deck + summary to MongoDB
+    try:
+        mongo_summary = {
+            "duration_seconds": round(elapsed, 2),
+            "cost_usd": agg["sdk_cost"],
+            "tokens": {
+                "output": agg["output_tokens"],
+                "input": agg["input_tokens"],
+                "cache_write": agg["cache_write"],
+                "cache_read": agg["cache_read"],
+            },
+            "validation_passed": validation_passed,
+            "batches": len(batches),
+        }
+        deck_json = None
+        if merge_ok and merged_path.exists():
+            with open(merged_path, "r", encoding="utf-8") as f:
+                deck_json = json.load(f)
+        await storage.save_deck(run_id, deck_json, mongo_summary)
+        print(f"  [mongo] deck saved -> presentations/{run_id}  (status: complete)")
+    except Exception as e:
+        print(f"  [mongo] save_deck failed ({e})")
+        try:
+            await storage.save_failed(run_id, str(e))
+        except Exception:
+            pass
 
     # Print summary
     print(f"\n--- run summary ---")

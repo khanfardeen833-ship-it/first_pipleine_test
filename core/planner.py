@@ -31,16 +31,28 @@ Respond with ONLY valid JSON — no markdown fences, no commentary.
       "subtitle": "<optional one-line subheading under the title, or null>",
       "layout": "<title_only | bullets | two_column | three_column | chart | table | quote | timeline>",
       "bullets": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
+      "columns": null,
       "bg": "<dark | light>"
     }
   ]
 }
 
+NOTE: "columns" is ONLY used when layout="two_column". For all other layouts, set columns=null.
+For layout="two_column", use this structure instead of bullets:
+{
+  "layout": "two_column",
+  "bullets": [],
+  "columns": {
+    "left":  { "heading": "<left column title>", "points": ["<point>", "<point>"] },
+    "right": { "heading": "<right column title>", "points": ["<point>", "<point>"] }
+  }
+}
+
 ━━━ LAYOUT GUIDE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 title_only   Opening or closing slide — no bullets, just a strong title + subtitle
 bullets      Standard slide with 2-4 bullet points
-two_column   Two equal sections side by side — split bullets as "LEFT: ... | RIGHT: ..."
-three_column Three equal cards — write each bullet as one card's content
+two_column   Two sections side by side — use "columns" field, NOT bullets
+three_column Three equal cards — each bullet is one card's content
 chart        Data visualization — first bullet is the insight, rest are data points
 table        Rows and columns — first bullet is column headers (comma-separated)
 quote        Featured quote — first bullet is the quote, second is attribution
@@ -71,6 +83,8 @@ USE THESE PREFIXES to add variety and clarity:
   "Note:"               — important caveat
   "vs."                 — contrast or comparison within a bullet
   Quoted terms          — wrap concepts in "quotes" to signal they are coined terms
+
+NEVER use "LEFT: ... | RIGHT: ..." in bullets — use the "columns" field for two_column slides.
 
 GOOD BULLET EXAMPLES (study these carefully):
   "2025: Focus on AGI debates and model-layer breakthroughs."
@@ -149,23 +163,66 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
     elapsed = time.time() - t0
     raw = response.content[0].text.strip()
 
+    # Strip markdown fences
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.strip()
 
-    outline = json.loads(raw)
+    # Extract first {...} block in case of any trailing text
+    brace_start = raw.find("{")
+    brace_end   = raw.rfind("}")
+    if brace_start != -1 and brace_end != -1:
+        raw = raw[brace_start:brace_end + 1]
+
+    try:
+        outline = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try a second pass via the API asking for clean JSON
+        repair_response = await client.messages.create(
+            model=_MODEL,
+            max_tokens=8000,
+            system="Return ONLY valid JSON. Fix any syntax errors. No markdown, no commentary.",
+            messages=[
+                {"role": "user", "content": f"Fix this broken JSON and return it clean:\n\n{raw}"}
+            ],
+        )
+        repaired = repair_response.content[0].text.strip()
+        if repaired.startswith("```"):
+            repaired = repaired.split("```")[1]
+            if repaired.startswith("json"):
+                repaired = repaired[4:]
+            repaired = repaired.strip()
+        outline = json.loads(repaired)
 
     # Normalise
     for i, slide in enumerate(outline.get("slides", []), start=1):
         slide.setdefault("slide_number", i)
         slide.setdefault("subtitle", None)
         slide.setdefault("layout", "bullets")
+        slide.setdefault("columns", None)
         slide.setdefault("bg", "dark" if i % 2 == 1 else "light")
         # support legacy 'points' / 'key_points' field names
         if "bullets" not in slide:
             slide["bullets"] = slide.pop("points", slide.pop("key_points", []))
+        # Repair: if model still wrote LEFT:|RIGHT: in bullets, extract into columns
+        if slide.get("layout") == "two_column" and slide.get("bullets") and not slide.get("columns"):
+            left_pts, right_pts = [], []
+            for b in slide["bullets"]:
+                if "LEFT:" in b and "RIGHT:" in b and "|" in b:
+                    parts = b.split("|")
+                    left_pts.append(parts[0].replace("LEFT:", "").strip())
+                    right_pts.append(parts[1].replace("RIGHT:", "").strip())
+                elif "LEFT:" in b:
+                    left_pts.append(b.replace("LEFT:", "").strip())
+                else:
+                    right_pts.append(b.replace("RIGHT:", "").strip())
+            slide["columns"] = {
+                "left":  {"heading": "", "points": left_pts},
+                "right": {"heading": "", "points": right_pts},
+            }
+            slide["bullets"] = []
 
     in_tok  = response.usage.input_tokens
     out_tok = response.usage.output_tokens
@@ -192,9 +249,20 @@ def print_outline(outline: dict) -> None:
     for s in outline.get("slides", []):
         bg = "[dark]" if s.get("bg") == "dark" else "[light]"
         layout = s.get("layout", "bullets")
-        print(f"\n  {s['title']}")
+        print(f"\n  {s['title']}  [{layout}] {bg}")
         if s.get("subtitle"):
             print(f"  {s['subtitle']}")
-        for b in s.get("bullets", []):
-            print(f"  • {b}")
+        # two_column: show columns side by side
+        if layout == "two_column" and s.get("columns"):
+            cols = s["columns"]
+            left  = cols.get("left", {})
+            right = cols.get("right", {})
+            if left.get("heading"):
+                print(f"  LEFT: {left['heading']}  |  RIGHT: {right.get('heading','')}")
+            for lp, rp in zip(left.get("points", []), right.get("points", [])):
+                print(f"  • L: {lp}")
+                print(f"    R: {rp}")
+        else:
+            for b in s.get("bullets", []):
+                print(f"  • {b}")
     print(f"\n{'='*width}\n")

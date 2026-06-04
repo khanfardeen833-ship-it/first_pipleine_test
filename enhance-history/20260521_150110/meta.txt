@@ -1,6 +1,0 @@
-provider    : OpenAI
-model       : gpt-4o
-slide_count : 15
-audience    : media professionals, entertainment executives, tech enthusiasts
-tone        : cinematic-premium, emotionally engaging, editorially refined
-key_sections: Setting the Stage, Platform Evolution, Future Forecast

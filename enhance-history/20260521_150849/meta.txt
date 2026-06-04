@@ -1,6 +1,0 @@
-provider    : OpenAI
-model       : gpt-5.4-mini
-slide_count : 15
-audience    : founders, product leaders, investors, strategy teams, SaaS market analysts
-tone        : cinematic-corporate, editorial-premium, investor-grade
-key_sections: Category Opening, Competitive Landscape, Market Dynamics and Future

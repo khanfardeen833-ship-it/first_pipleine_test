@@ -1,6 +1,0 @@
-provider    : OpenAI
-model       : gpt-5.5
-slide_count : 15
-audience    : luxury travelers, adventure seekers, travel storytellers, tourism marketers
-tone        : cinematic-premium, editorial-playful, luxury-travel
-key_sections: Arrival in Color, Wild Beauty Soft Luxury, Rhythm Culture Memory

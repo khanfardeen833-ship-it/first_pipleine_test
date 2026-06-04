@@ -1,5 +1,16 @@
 .env
 *.md
 __pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
 .DS_Store
 workspace/
+enhance-history/
+.pytest_cache/
+*.log
+*.pptx
+preview*.html
+phase1_*.json
+phase1_*.log
+ai_presentation_market_study.json

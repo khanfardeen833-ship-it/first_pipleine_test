@@ -1,1 +1,0 @@
-Create a 15-slide deck on software engineering best practices covering version control, testing, code review, CI/CD, deployment, and observability. Use clean technical design.

@@ -1,6 +1,0 @@
-provider    : OpenAI
-model       : gpt-5.5
-slide_count : 15
-audience    : prospective UC Berkeley applicants, families, college counselors, admissions-curious students
-tone        : cinematic-premium, editorial-polish, academic-documentary
-key_sections: The Hidden Architecture of Selection, Beyond the Decision Letter

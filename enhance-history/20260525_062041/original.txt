@@ -1,1 +1,0 @@
-Create a 15-slide presentation on data science fundamentals covering statistics, probability, hypothesis testing, regression, classification, and evaluation metrics. Use professional design with mathematical diagrams and examples.

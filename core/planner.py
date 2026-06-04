@@ -21,6 +21,8 @@ directly on the slide, exactly as you write it.
 Respond with ONLY valid JSON — no markdown fences, no commentary.
 
 ━━━ SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Every slide uses the exact same JSON structure — no exceptions:
+
 {
   "title": "<deck title — punchy, 5-8 words>",
   "subtitle": "<one sentence — what the audience will learn or walk away with>",
@@ -28,35 +30,26 @@ Respond with ONLY valid JSON — no markdown fences, no commentary.
     {
       "slide_number": 1,
       "title": "<slide heading — 4-7 words, specific>",
-      "subtitle": "<optional one-line subheading under the title, or null>",
+      "subtitle": "<optional one-line subheading, or null>",
       "layout": "<title_only | bullets | two_column | three_column | chart | table | quote | timeline>",
       "bullets": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
-      "columns": null,
       "bg": "<dark | light>"
     }
   ]
 }
 
-NOTE: "columns" is ONLY used when layout="two_column". For all other layouts, set columns=null.
-For layout="two_column", use this structure instead of bullets:
-{
-  "layout": "two_column",
-  "bullets": [],
-  "columns": {
-    "left":  { "heading": "<left column title>", "points": ["<point>", "<point>"] },
-    "right": { "heading": "<right column title>", "points": ["<point>", "<point>"] }
-  }
-}
-
 ━━━ LAYOUT GUIDE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-title_only   Opening or closing slide — no bullets, just a strong title + subtitle
-bullets      Standard slide with 2-4 bullet points
-two_column   Two sections side by side — use "columns" field, NOT bullets
-three_column Three equal cards — each bullet is one card's content
-chart        Data visualization — first bullet is the insight, rest are data points
-table        Rows and columns — first bullet is column headers (comma-separated)
-quote        Featured quote — first bullet is the quote, second is attribution
-timeline     Sequence of events — each bullet is "YEAR/PHASE: description"
+ALL layouts use the same "bullets" array. The layout field tells the frontend how to display them.
+
+title_only   No bullets (empty array). Just title + subtitle.
+bullets      2-4 bullet points displayed as a list.
+two_column   4-6 bullets — frontend splits them evenly into two columns.
+             Write bullets so first half = left column, second half = right column.
+three_column Exactly 3 bullets — each becomes one card/column.
+chart        2-4 bullets — first is the headline insight, rest are supporting data points.
+table        3-5 bullets — first bullet is the row data (use commas to separate columns).
+quote        2 bullets — first is the quote text, second is "— Name, Title, Company".
+timeline     3-5 bullets — each is "YEAR: what happened".
 
 ━━━ SLIDE TITLE QUALITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Make titles specific and opinionated. Never generic.
@@ -196,33 +189,31 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
             repaired = repaired.strip()
         outline = json.loads(repaired)
 
-    # Normalise
+    # Normalise — every slide gets the same flat fields
     for i, slide in enumerate(outline.get("slides", []), start=1):
         slide.setdefault("slide_number", i)
         slide.setdefault("subtitle", None)
         slide.setdefault("layout", "bullets")
-        slide.setdefault("columns", None)
         slide.setdefault("bg", "dark" if i % 2 == 1 else "light")
-        # support legacy 'points' / 'key_points' field names
+        # Support legacy field names
         if "bullets" not in slide:
             slide["bullets"] = slide.pop("points", slide.pop("key_points", []))
-        # Repair: if model still wrote LEFT:|RIGHT: in bullets, extract into columns
-        if slide.get("layout") == "two_column" and slide.get("bullets") and not slide.get("columns"):
-            left_pts, right_pts = [], []
-            for b in slide["bullets"]:
-                if "LEFT:" in b and "RIGHT:" in b and "|" in b:
-                    parts = b.split("|")
-                    left_pts.append(parts[0].replace("LEFT:", "").strip())
-                    right_pts.append(parts[1].replace("RIGHT:", "").strip())
-                elif "LEFT:" in b:
-                    left_pts.append(b.replace("LEFT:", "").strip())
-                else:
-                    right_pts.append(b.replace("RIGHT:", "").strip())
-            slide["columns"] = {
-                "left":  {"heading": "", "points": left_pts},
-                "right": {"heading": "", "points": right_pts},
-            }
-            slide["bullets"] = []
+        # Drop any stray columns/visual/headline fields from old schema
+        for old_field in ("columns", "visual", "headline", "narrative_role",
+                          "speaker_note", "type", "key_points", "points"):
+            slide.pop(old_field, None)
+        # Repair: if model still emitted LEFT:|RIGHT: strings, flatten into plain bullets
+        cleaned = []
+        for b in slide.get("bullets", []):
+            if "LEFT:" in b and "RIGHT:" in b and "|" in b:
+                parts = b.split("|")
+                cleaned.append(parts[0].replace("LEFT:", "").strip())
+                cleaned.append(parts[1].replace("RIGHT:", "").strip())
+            elif b.startswith("LEFT:") or b.startswith("RIGHT:"):
+                cleaned.append(b.replace("LEFT:", "").replace("RIGHT:", "").strip())
+            else:
+                cleaned.append(b)
+        slide["bullets"] = cleaned
 
     in_tok  = response.usage.input_tokens
     out_tok = response.usage.output_tokens
@@ -252,17 +243,6 @@ def print_outline(outline: dict) -> None:
         print(f"\n  {s['title']}  [{layout}] {bg}")
         if s.get("subtitle"):
             print(f"  {s['subtitle']}")
-        # two_column: show columns side by side
-        if layout == "two_column" and s.get("columns"):
-            cols = s["columns"]
-            left  = cols.get("left", {})
-            right = cols.get("right", {})
-            if left.get("heading"):
-                print(f"  LEFT: {left['heading']}  |  RIGHT: {right.get('heading','')}")
-            for lp, rp in zip(left.get("points", []), right.get("points", [])):
-                print(f"  • L: {lp}")
-                print(f"    R: {rp}")
-        else:
-            for b in s.get("bullets", []):
-                print(f"  • {b}")
+        for b in s.get("bullets", []):
+            print(f"  • {b}")
     print(f"\n{'='*width}\n")

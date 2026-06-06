@@ -226,6 +226,8 @@ async def generate_deck(outline_id: str, background_tasks: BackgroundTasks):
 
     outline_data = doc.get("outline", {})
 
+    user_id = str(pres.get("userId", ""))
+
     async def _generate():
         try:
             await storage.set_outline_generating(outline_id)
@@ -242,7 +244,14 @@ async def generate_deck(outline_id: str, background_tasks: BackgroundTasks):
                     "tokens":           summary_raw.get("tokens", {}),
                     "validation_passed": summary_raw.get("output", {}).get("validation_passed"),
                 }
-                await storage.save_deck_to_outline(outline_id, deck, mongo_summary)
+                deck_id = await storage.create_deck_doc(
+                    outline_id=outline_id,
+                    presentation_id=str(doc["presentationId"]),
+                    user_id=user_id,
+                    deck=deck,
+                    summary=mongo_summary,
+                )
+                await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
         except Exception as e:
             await storage.mark_outline_failed(outline_id, str(e))
 

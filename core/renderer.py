@@ -12,6 +12,14 @@ def truncate(text, n=200) -> str:
 
 
 def render_message(msg, tracker):
+    try:
+        _render_message_impl(msg, tracker)
+    except UnicodeEncodeError:
+        # Skip rendering on encoding errors (Windows console issues)
+        pass
+
+
+def _render_message_impl(msg, tracker):
     cls_name = type(msg).__name__
 
     if cls_name == "SystemMessage":

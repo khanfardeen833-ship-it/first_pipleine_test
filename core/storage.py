@@ -8,8 +8,12 @@ Collections:
 
   outlines       — pipeline-created, one doc per presentation
                    { _id, presentationId, userId, prompt, totalSlides,
-                     status, outline, deck, summary, createdAt, updatedAt }
+                     status, outline, deckId, summary, createdAt, updatedAt }
                    status flow:  pending → generating → complete | failed
+
+  decks          — final generated deck JSON, one doc per completed outline
+                   { _id, outlineId, presentationId, userId,
+                     deck, summary, createdAt }
 """
 
 import os
@@ -166,18 +170,22 @@ async def save_deck_to_outline(
     outline_id: str,
     deck: dict,
     summary: dict,
+    deck_id: str | None = None,
 ) -> None:
     """Store the finished deck JSON + summary into the outline document."""
     from bson import ObjectId
     db = _get_db()
+    fields = {
+        "status": "complete",
+        "deck": deck,
+        "summary": summary,
+        "updatedAt": _now(),
+    }
+    if deck_id is not None:
+        fields["deckId"] = deck_id
     await db.outlines.update_one(
         {"_id": ObjectId(outline_id)},
-        {"$set": {
-            "status": "complete",
-            "deck": deck,
-            "summary": summary,
-            "updatedAt": _now(),
-        }},
+        {"$set": fields},
     )
 
 
@@ -228,3 +236,40 @@ async def list_outlines(limit: int = 20) -> list:
         .limit(limit)
     )
     return await cursor.to_list(length=limit)
+
+
+# ---------------------------------------------------------------------------
+# decks collection  (final generated deck JSON)
+# ---------------------------------------------------------------------------
+
+async def create_deck_doc(
+    outline_id: str,
+    presentation_id: str,
+    user_id: str,
+    deck: dict,
+    summary: dict,
+) -> str:
+    """
+    Insert the final generated deck JSON into the decks collection.
+    Returns the new deck document _id (as str).
+    """
+    from bson import ObjectId
+    db = _get_db()
+    oid = ObjectId()
+    await db.decks.insert_one({
+        "_id": oid,
+        "outlineId": outline_id,
+        "presentationId": presentation_id,
+        "userId": user_id,
+        "deck": deck,
+        "summary": summary,
+        "createdAt": _now(),
+    })
+    return str(oid)
+
+
+async def get_deck(deck_id: str) -> dict | None:
+    """Fetch a deck document by its _id."""
+    from bson import ObjectId
+    db = _get_db()
+    return await db.decks.find_one({"_id": ObjectId(deck_id)})

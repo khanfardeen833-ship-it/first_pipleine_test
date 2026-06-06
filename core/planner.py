@@ -13,6 +13,9 @@ from pathlib import Path
 import anthropic
 
 
+DEFAULT_OUTLINE_MODEL = "claude-haiku-4-5"
+
+
 _OUTLINE_SYSTEM = """\
 You are a presentation content expert. You create slide outlines for PowerPoint \
 and Google Slides. Your output IS the slide content — every bullet will appear \
@@ -117,7 +120,7 @@ BAD BULLET EXAMPLES (never write like this):
 
 async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) -> dict:
     """
-    Generate a Gamma-quality slide outline using Claude Sonnet.
+    Generate a Gamma-quality slide outline using the configured fast model.
 
     Every bullet in the returned JSON is ready to appear directly on a slide.
     If run_dir is provided, saves outline.json there too.
@@ -139,15 +142,13 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
         f"Return ONLY the JSON object."
     )
 
-    _MODEL  = "claude-sonnet-4-6"
-    _IN_PX  = 3.0 / 1_000_000
-    _OUT_PX = 15.0 / 1_000_000
+    model = os.environ.get("ANTHROPIC_OUTLINE_MODEL", DEFAULT_OUTLINE_MODEL)
 
-    print(f"\n--- planning {total_slides} slides ---")
+    print(f"\n--- planning {total_slides} slides ({model}) ---")
     t0 = time.time()
 
     response = await client.messages.create(
-        model=_MODEL,
+        model=model,
         max_tokens=8000,
         system=_OUTLINE_SYSTEM,
         messages=[{"role": "user", "content": user_message}],
@@ -174,7 +175,7 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
     except json.JSONDecodeError:
         # Try a second pass via the API asking for clean JSON
         repair_response = await client.messages.create(
-            model=_MODEL,
+            model=model,
             max_tokens=8000,
             system="Return ONLY valid JSON. Fix any syntax errors. No markdown, no commentary.",
             messages=[
@@ -217,9 +218,8 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
 
     in_tok  = response.usage.input_tokens
     out_tok = response.usage.output_tokens
-    cost    = in_tok * _IN_PX + out_tok * _OUT_PX
 
-    print(f"  done in {elapsed:.1f}s  ({in_tok} in / {out_tok} out, ~${cost:.4f})")
+    print(f"  done in {elapsed:.1f}s  ({in_tok} in / {out_tok} out)")
 
     if run_dir is not None:
         p = Path(run_dir) / "outline.json"

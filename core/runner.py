@@ -22,6 +22,21 @@ from core.planner import generate_outline, print_outline
 from core import storage
 
 
+DEFAULT_BATCH_SIZE = 8
+
+
+def get_batch_size() -> int:
+    """Return configured slides per generation batch."""
+    raw = os.environ.get("PRESENTATION_BATCH_SIZE", str(DEFAULT_BATCH_SIZE))
+    try:
+        batch_size = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"PRESENTATION_BATCH_SIZE must be an integer, got {raw!r}") from exc
+    if batch_size < 1:
+        raise ValueError("PRESENTATION_BATCH_SIZE must be at least 1")
+    return batch_size
+
+
 # ---------------------------------------------------------------------------
 # Validation runner
 # ---------------------------------------------------------------------------
@@ -180,7 +195,7 @@ BATCH CONSTRAINT: Generate ONLY slides {slide_start}–{slide_end} of {total_sli
 async def create_outline(
     user_prompt: str,
     total_slides: int = 15,
-    batch_size: int = 5,
+    batch_size: int | None = None,
 ) -> dict:
     """
     Phase 1 of the two-step pipeline.
@@ -199,6 +214,7 @@ async def create_outline(
     (with or without edits), pass the returned run_id + edited outline
     to generate_from_outline().
     """
+    batch_size = batch_size or get_batch_size()
     run_id  = f"run-{int(time.time() * 1000)}"
     run_dir = WORKSPACE / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -304,12 +320,13 @@ async def generate_from_outline(run_id: str, outline: dict) -> None:
 # Parallel runner — splits deck into batches, gathers, merges
 # (kept for one-shot use; internally calls create_outline + generate_from_outline)
 # ---------------------------------------------------------------------------
-async def run_parallel_agent(user_prompt: str, total_slides: int = 15, batch_size: int = 5):
+async def run_parallel_agent(user_prompt: str, total_slides: int = 15, batch_size: int | None = None):
     """
     One-shot runner: outline → (no pause) → generate → merge → validate.
     Use create_outline() + generate_from_outline() for the two-step flow
     where the frontend can review and edit the outline before generation.
     """
+    batch_size = batch_size or get_batch_size()
     run_id  = f"run-{int(time.time() * 1000)}"
     run_dir = WORKSPACE / run_id
     run_dir.mkdir(parents=True, exist_ok=True)

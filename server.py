@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 
 from core import storage
 from core.worker import run_worker
-from core.runner import generate_from_outline
+from core.runner import generate_from_outline, get_batch_size
 from core.config import preflight
 
 
@@ -219,7 +219,7 @@ async def generate_deck(outline_id: str, background_tasks: BackgroundTasks):
         "run_id":      run_id,
         "user_prompt": pres.get("prompt", ""),
         "total_slides": pres.get("slides", 15),
-        "batch_size":   5,
+        "batch_size":   get_batch_size(),
         "outline_id":   outline_id,
     }
     (run_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

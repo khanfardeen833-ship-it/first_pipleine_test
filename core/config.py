@@ -78,10 +78,12 @@ def preflight():
     WORKSPACE.mkdir(exist_ok=True)
 
     model = os.environ["ANTHROPIC_MODEL"]
+    outline_model = os.environ.get("ANTHROPIC_OUTLINE_MODEL", "claude-haiku-4-5")
     rates, is_known = get_pricing(model)
 
     print("pre-flight OK")
-    print(f"  model:     {model}")
+    print(f"  slide model:   {model}")
+    print(f"  outline model: {outline_model}")
     print(f"  api:       anthropic (direct)")
     print(f"  workspace: {WORKSPACE}")
     print(f"  core skills:    {len(CORE_SKILL_FILES)} files")

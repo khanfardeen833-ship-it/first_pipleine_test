@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 
 from core import storage
 from core.worker import run_worker
-from core.runner import generate_from_outline, get_batch_size
+from core.runner import run_deck_pipeline
 from core.config import preflight
 
 
@@ -167,10 +167,12 @@ async def get_outline(outline_id: str):
 
 
 @app.put("/api/outlines/{outline_id}")
-async def edit_outline(outline_id: str, body: EditOutlineRequest):
+async def edit_outline(outline_id: str, body: EditOutlineRequest,
+                       background_tasks: BackgroundTasks):
     """
-    User edits the outline on the frontend — save it here before generating.
-    Only allowed when status is 'pending' (deck not yet generated).
+    Frontend saves the reviewed/edited outline.
+    Saves the outline content and automatically kicks off deck generation.
+    Only allowed when status is 'pending'.
     """
     if not ObjectId.is_valid(outline_id):
         raise HTTPException(400, "Invalid outlineId")
@@ -178,16 +180,23 @@ async def edit_outline(outline_id: str, body: EditOutlineRequest):
     if not doc:
         raise HTTPException(404, "Outline not found")
     if doc.get("status") not in ("pending",):
-        raise HTTPException(409, f"Cannot edit outline in status '{doc.get('status')}'")
+        raise HTTPException(409, f"Cannot update outline in status '{doc.get('status')}'")
 
     await storage.update_outline_content(outline_id, body.outline)
-    return {"message": "Outline updated", "outlineId": outline_id}
+    background_tasks.add_task(run_deck_pipeline, outline_id)
+
+    return {
+        "message": "Outline saved — deck generation started",
+        "outlineId": outline_id,
+        "note": "Poll GET /api/outlines/{id} — status changes to 'done' when done (~2 min).",
+    }
 
 
 @app.post("/api/outlines/{outline_id}/generate")
 async def generate_deck(outline_id: str, background_tasks: BackgroundTasks):
     """
-    User approves the outline — start full deck generation in the background.
+    Manually trigger deck generation for an outline (optional — the worker
+    triggers this automatically after outline creation).
     Deck generation takes ~2 minutes; poll GET /api/outlines/{id} for status.
     """
     if not ObjectId.is_valid(outline_id):
@@ -198,86 +207,35 @@ async def generate_deck(outline_id: str, background_tasks: BackgroundTasks):
     if doc.get("status") != "pending":
         raise HTTPException(409, f"Outline is already in status '{doc.get('status')}'")
 
-    # Fetch run_meta from presentations to get user_prompt + slide config
-    db = storage._get_db()
-    pres = await db.presentations.find_one(
-        {"_id": ObjectId(doc["presentationId"])} if ObjectId.is_valid(str(doc["presentationId"])) else {"_id": doc["presentationId"]}
-    )
-    if not pres:
-        raise HTTPException(404, "Parent presentation not found")
-
-    # Build a run_id and run_meta.json so generate_from_outline can work
-    import time, json
-    from pathlib import Path
-    from core.config import WORKSPACE
-
-    run_id  = f"run-{int(time.time() * 1000)}"
-    run_dir = WORKSPACE / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    meta = {
-        "run_id":      run_id,
-        "user_prompt": pres.get("prompt", ""),
-        "total_slides": pres.get("slides", 15),
-        "batch_size":   get_batch_size(),
-        "outline_id":   outline_id,
-    }
-    (run_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-
-    outline_data = doc.get("outline", {})
-
-    user_id = str(pres.get("userId", ""))
-
-    async def _generate():
-        try:
-            await storage.set_outline_generating(outline_id)
-            await generate_from_outline(run_id, outline_data)
-            # grab the saved deck from disk and store in MongoDB
-            merged = run_dir / "merged_deck.json"
-            if merged.exists():
-                deck = json.loads(merged.read_text(encoding="utf-8"))
-                summary_path = run_dir / "run_summary.json"
-                summary_raw = json.loads(summary_path.read_text()) if summary_path.exists() else {}
-                mongo_summary = {
-                    "duration_seconds": summary_raw.get("run", {}).get("duration_seconds"),
-                    "cost_usd":         summary_raw.get("cost", {}).get("sdk_reported"),
-                    "tokens":           summary_raw.get("tokens", {}),
-                    "validation_passed": summary_raw.get("output", {}).get("validation_passed"),
-                }
-                deck_id = await storage.create_deck_doc(
-                    outline_id=outline_id,
-                    presentation_id=str(doc["presentationId"]),
-                    user_id=user_id,
-                    deck=deck,
-                    summary=mongo_summary,
-                )
-                await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
-        except Exception as e:
-            await storage.mark_outline_failed(outline_id, str(e))
-
-    background_tasks.add_task(_generate)
+    background_tasks.add_task(run_deck_pipeline, outline_id)
 
     return {
         "message": "Deck generation started",
         "outlineId": outline_id,
-        "runId": run_id,
-        "note": "Poll GET /api/outlines/{id} — status changes to 'complete' when done (~2 min)."
+        "note": "Poll GET /api/outlines/{id} — status changes to 'done' when done (~2 min)."
     }
 
 
 @app.get("/api/outlines/{outline_id}/deck")
 async def get_deck(outline_id: str):
     """
-    Fetch the final deck JSON once status is 'complete'.
+    Fetch the final deck once status is 'done'.
+    Returns slides[] — one entry per slide, each element has content + design together.
     """
     if not ObjectId.is_valid(outline_id):
         raise HTTPException(400, "Invalid outlineId")
     doc = await storage.get_outline(outline_id)
     if not doc:
         raise HTTPException(404, "Outline not found")
-    if doc.get("status") != "complete":
+    if doc.get("status") != "done":
         raise HTTPException(409, f"Deck not ready yet — status is '{doc.get('status')}'")
-    return JSONResponse(content={"deck": doc.get("deck"), "summary": doc.get("summary")})
+    deck_doc = await storage.get_deck(str(doc["deckId"]))
+    if not deck_doc:
+        raise HTTPException(404, "Deck document not found")
+    return JSONResponse(content={
+        "slides":  deck_doc.get("slides"),
+        "summary": deck_doc.get("summary"),
+    })
 
 
 @app.get("/api/outlines")

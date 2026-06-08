@@ -5,6 +5,7 @@ Async agent loop, run directory setup, validation gate, run summary, and summary
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 import anyio
 from claude_agent_sdk import query, ClaudeAgentOptions
 
-from core.config import WORKSPACE, VALIDATOR
+from core.config import WORKSPACE, VALIDATOR, DECK_BUILDER
 from core.tracker import Tracker
 from core.renderer import render_message
 from core.prompt import build_system_prompt
@@ -164,6 +165,11 @@ BATCH CONSTRAINT: Generate ONLY slides {slide_start}–{slide_end} of {total_sli
   zIndex values start at {id_offset + 1}
   slideCount in the envelope JSON = {batch_size} (this batch only, NOT {total_slides})
   The final merged deck will combine all batches; focus only on your assigned slides.
+
+BUILDER REQUIREMENT:
+  Import Deck from the provided deck_builder.py.
+  Initialize it with: deck = Deck("<deck title>", id_offset={id_offset})
+  Use Deck/Slide primitives for all elements; do not recreate schema helper functions.
 """
 
     # Inject the pre-approved outline for this batch's slides as design guidance
@@ -184,9 +190,92 @@ BATCH CONSTRAINT: Generate ONLY slides {slide_start}–{slide_end} of {total_sli
 
     system_prompt = build_system_prompt(extra=batch_constraint + outline_context)
     batch_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(DECK_BUILDER, batch_dir / "deck_builder.py")
 
     tracker = await _run_single_agent(user_prompt, system_prompt, batch_dir, label)
     return batch_dir, tracker
+
+
+# ---------------------------------------------------------------------------
+# Full automatic pipeline: outline_id → deck → MongoDB
+# Called by the worker automatically after outline is saved.
+# Also called by the API endpoint when the user triggers generation manually.
+# ---------------------------------------------------------------------------
+async def run_deck_pipeline(outline_id: str) -> None:
+    """
+    Given an outline_id, fetch the outline + parent presentation from MongoDB,
+    run full deck generation, and store the result in the decks collection.
+    Updates outlines.status: pending → generating → done | failed.
+    """
+    from bson import ObjectId
+
+    outline_doc = await storage.get_outline(outline_id)
+    if not outline_doc:
+        raise ValueError(f"Outline not found: {outline_id}")
+
+    presentation_id = str(outline_doc["presentationId"])
+    user_id         = str(outline_doc.get("userId", ""))
+    outline_data    = outline_doc.get("outline", {})
+
+    db   = storage._get_db()
+    pres = await db.presentations.find_one({"_id": ObjectId(presentation_id)})
+    if not pres:
+        raise ValueError(f"Presentation not found: {presentation_id}")
+
+    user_prompt  = pres.get("prompt", "")
+    total_slides = int(pres.get("slides", 15))
+
+    run_id  = f"run-{int(time.time() * 1000)}"
+    run_dir = WORKSPACE / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    meta = {
+        "run_id":       run_id,
+        "user_prompt":  user_prompt,
+        "total_slides": total_slides,
+        "batch_size":   get_batch_size(),
+        "outline_id":   outline_id,
+    }
+    (run_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    print(f"\n[pipeline] starting  outline={outline_id}  run={run_id}  slides={total_slides}")
+
+    try:
+        await storage.set_outline_generating(outline_id)
+        await generate_from_outline(run_id, outline_data)
+
+        merged = run_dir / "merged_deck.json"
+        if not merged.exists():
+            raise RuntimeError("merged_deck.json was not produced")
+
+        deck        = json.loads(merged.read_text(encoding="utf-8"))
+        summary_raw = {}
+        sp = run_dir / "run_summary.json"
+        if sp.exists():
+            summary_raw = json.loads(sp.read_text(encoding="utf-8"))
+
+        mongo_summary = {
+            "duration_seconds":  summary_raw.get("run", {}).get("duration_seconds"),
+            "cost_usd":          summary_raw.get("cost", {}).get("sdk_reported"),
+            "tokens":            summary_raw.get("tokens", {}),
+            "validation_passed": summary_raw.get("output", {}).get("validation_passed"),
+        }
+
+        deck_id = await storage.create_deck_doc(
+            outline_id=outline_id,
+            presentation_id=presentation_id,
+            user_id=user_id,
+            deck=deck,
+            summary=mongo_summary,
+        )
+        await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
+        print(f"[pipeline] done  decks/{deck_id}  outlines/{outline_id} status=done")
+
+    except Exception as e:
+        err = str(e)
+        print(f"[pipeline] FAILED  outline={outline_id}: {err}")
+        await storage.mark_outline_failed(outline_id, err)
+        raise
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,8 @@ SKILLS_INDEX = SKILLS_DIR / "00-index.md"
 WORKSPACE    = PROJECT_DIR / "workspace"
 VALIDATOR    = PROJECT_DIR / "validate.py"
 PROMPTS_DIR  = PROJECT_DIR / "prompts"
+DECK_BUILDER = PROJECT_DIR / "deck_builder.py"
+DECK_BUILDER_API = PROMPTS_DIR / "deck_builder_api.md"
 
 CORE_SKILL_FILES = [
     "01-envelope.md",
@@ -68,6 +70,12 @@ def preflight():
 
     if not PROMPTS_DIR.exists():
         problems.append(f"prompts directory not found: {PROMPTS_DIR}")
+
+    if not DECK_BUILDER.exists():
+        problems.append(f"deck builder not found: {DECK_BUILDER}")
+
+    if not DECK_BUILDER_API.exists():
+        problems.append(f"deck builder API guide not found: {DECK_BUILDER_API}")
 
     if problems:
         print("PRE-FLIGHT FAILED:")

@@ -357,7 +357,7 @@ def check_safe_zone(data):
 def validate(path):
     """Run all checks. Returns (problems, warnings) — both are lists of strings."""
     try:
-        data = json.loads(Path(path).read_text())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return [f"file not found: {path}"], []
     except json.JSONDecodeError as e:

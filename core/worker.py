@@ -1,59 +1,71 @@
 """
 Background worker using MongoDB Change Streams.
 
-Instead of polling every N seconds, the worker opens a change stream on the
-presentations collection. MongoDB pushes an event the instant a document is
-inserted or updated with status='pending' — zero delay, zero wasted queries.
+Watches two collections:
+  presentations — status=pending  → generate outline → outlines status=pending
+  outlines      — status=processing → generate deck  → outlines status=done
 
-Startup sequence:
-  1. Drain any existing pending docs that arrived while the worker was offline.
-  2. Open a change stream and wait for new inserts/updates in real time.
+Flow:
+  1. Frontend submits prompt
+     presentations.status: pending
+           → worker claims it (status=processing)
+           → generates outline (~15s)
+           → saves to outlines (status=pending)
+           → presentations.status=done
 
-Flow per document:
-  presentations.status: pending
-        → atomic claim  (status = 'processing')
-        → generate outline  (Haiku, ~15s)
-        → insert into outlines  (status = 'pending', outline = {...})
-        → presentations.status = 'done'  (+ outlineId reference)
-
-Run with:
-    python run_worker.py
+  2. Frontend shows outline to user, user approves
+     Frontend sets outlines.status=processing in the database
+           → worker detects this via change stream
+           → claims it (status=generating)
+           → generates full deck (~2 min)
+           → saves to decks collection
+           → outlines.status=done
 """
 
 import asyncio
-import sys
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from core import storage
 from core.planner import generate_outline
+from core.runner import run_deck_pipeline
 
 
-# Change stream filter: fire on insert OR update that sets status='pending'
-_PIPELINE = [
+# ── Change stream filters ─────────────────────────────────────────────────────
+
+_PRESENTATIONS_PIPELINE = [
     {"$match": {
         "operationType": {"$in": ["insert", "update", "replace"]},
         "$or": [
-            {"fullDocument.status": "pending"},            # insert with pending
-            {"updateDescription.updatedFields.status": "pending"},  # update to pending
+            {"fullDocument.status": "pending"},
+            {"updateDescription.updatedFields.status": "pending"},
+        ]
+    }}
+]
+
+_OUTLINES_PIPELINE = [
+    {"$match": {
+        "operationType": {"$in": ["insert", "update", "replace"]},
+        "$or": [
+            {"fullDocument.status": "processing"},
+            {"updateDescription.updatedFields.status": "processing"},
         ]
     }}
 ]
 
 
-async def process_one(doc: dict) -> None:
-    """
-    Process a single presentation doc (already claimed as 'processing').
-    Generates outline → saves to outlines → marks presentation 'done'.
-    """
+# ── Outline generation (Stage 1) ──────────────────────────────────────────────
+
+async def process_presentation(doc: dict) -> None:
+    """Claim a presentation, generate its outline, save to outlines collection."""
     raw_id = doc["_id"]
     pid    = str(raw_id)
     prompt = doc.get("prompt", "")
     slides = int(doc.get("slides", 15))
     uid    = str(doc.get("userId", ""))
 
-    print(f"\n[worker] processing  {pid}")
+    print(f"\n[worker] processing presentation  {pid}")
     print(f"         prompt:  {prompt[:80]}")
     print(f"         slides:  {slides}")
 
@@ -70,6 +82,7 @@ async def process_one(doc: dict) -> None:
 
         await storage.mark_presentation_done(raw_id, outline_id)
         print(f"[worker] presentations/{pid}  status=done  outlineId={outline_id}")
+        print(f"[worker] waiting for frontend to approve -> outlines/{outline_id}")
 
     except Exception as e:
         err = str(e)
@@ -77,57 +90,102 @@ async def process_one(doc: dict) -> None:
         await storage.mark_presentation_failed(raw_id, err)
 
 
-async def _drain_existing() -> int:
+# ── Deck generation (Stage 2) ─────────────────────────────────────────────────
+
+async def process_outline(outline_id: str) -> None:
     """
-    On startup, process any presentations that were already pending
-    (arrived while the worker was offline).
-    Returns the number of docs processed.
+    Frontend set outlines.status=processing — claim it and generate the deck.
+    Uses atomic claim to prevent double-processing by concurrent workers.
     """
+    from bson import ObjectId
+    db = storage._get_db()
+
+    # Atomic claim: only proceed if still 'processing' (not already grabbed)
+    doc = await db.outlines.find_one_and_update(
+        {"_id": ObjectId(outline_id), "status": "processing"},
+        {"$set": {"status": "generating"}},
+        return_document=False,
+    )
+    if not doc:
+        return  # Another worker already claimed it
+
+    print(f"\n[worker] outline approved by frontend  {outline_id}")
+    print(f"[worker] starting deck generation...")
+
+    try:
+        await run_deck_pipeline(outline_id)
+    except Exception as e:
+        print(f"[worker] deck generation failed for {outline_id}: {e}")
+
+
+# ── Startup backlog drain ─────────────────────────────────────────────────────
+
+async def _drain_pending_presentations() -> int:
     count = 0
     while True:
         doc = await storage.claim_pending_presentation()
         if not doc:
             break
-        await process_one(doc)
+        await process_presentation(doc)
         count += 1
     return count
 
 
+async def _drain_processing_outlines() -> int:
+    """Pick up any outlines the frontend already set to processing before startup."""
+    from bson import ObjectId
+    db = storage._get_db()
+    count = 0
+    async for doc in db.outlines.find({"status": "processing"}):
+        outline_id = str(doc["_id"])
+        print(f"[worker] backlog: outline {outline_id} was processing — starting deck generation")
+        asyncio.create_task(process_outline(outline_id))
+        count += 1
+    return count
+
+
+# ── Main entry point ──────────────────────────────────────────────────────────
+
 async def run_worker() -> None:
-    """
-    Main entry point.
-    1. Drain existing pending presentations.
-    2. Watch the change stream for new ones in real time.
-    """
     print("[worker] starting — using MongoDB Change Streams")
-    print("[worker] watching: presentations  (status=pending)")
-    print("[worker] writing:  outlines       (status=pending)")
+    print("[worker] watching: presentations  (status=pending)    → outline generation")
+    print("[worker] watching: outlines       (status=processing)  → deck generation")
     print()
 
-    # Step 1: catch up on anything pending from before start
-    drained = await _drain_existing()
-    if drained:
-        print(f"[worker] drained {drained} pending doc(s) from before startup")
+    drained_pres = await _drain_pending_presentations()
+    drained_out  = await _drain_processing_outlines()
+
+    if drained_pres or drained_out:
+        print(f"[worker] drained {drained_pres} presentation(s), {drained_out} outline(s) from backlog")
     else:
         print("[worker] no backlog — ready")
 
-    # Step 2: open change stream and react in real time
     db = storage._get_db()
-    print("[worker] change stream open — waiting for new presentations...\n")
+    print("[worker] change streams open — waiting...\n")
 
-    async with db.presentations.watch(
-        _PIPELINE,
-        full_document="updateLookup",   # include full doc on updates too
-    ) as stream:
-        async for event in stream:
-            op   = event["operationType"]
-            full = event.get("fullDocument") or {}
+    async def watch_presentations():
+        async with db.presentations.watch(
+            _PRESENTATIONS_PIPELINE,
+            full_document="updateLookup",
+        ) as stream:
+            async for event in stream:
+                full = event.get("fullDocument") or {}
+                if full.get("status") == "pending":
+                    doc = await storage.claim_pending_presentation()
+                    if doc:
+                        print(f"[worker] new presentation → {doc['_id']}")
+                        asyncio.create_task(process_presentation(doc))
 
-            # The event fired but someone else may have already claimed it;
-            # use the atomic claim so we never double-process.
-            if full.get("status") == "pending":
-                doc = await storage.claim_pending_presentation()
-                if doc:
-                    print(f"[worker] change stream event ({op}) → claimed {doc['_id']}")
-                    asyncio.create_task(process_one(doc))
-                # If claim returns None, another worker already took it — skip.
+    async def watch_outlines():
+        async with db.outlines.watch(
+            _OUTLINES_PIPELINE,
+            full_document="updateLookup",
+        ) as stream:
+            async for event in stream:
+                full = event.get("fullDocument") or {}
+                if full.get("status") == "processing":
+                    outline_id = str(full["_id"])
+                    print(f"[worker] outline approved → {outline_id}")
+                    asyncio.create_task(process_outline(outline_id))
+
+    await asyncio.gather(watch_presentations(), watch_outlines())

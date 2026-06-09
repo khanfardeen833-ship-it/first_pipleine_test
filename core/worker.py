@@ -65,6 +65,18 @@ async def process_presentation(doc: dict) -> None:
     slides = int(doc.get("slides", 15))
     uid    = str(doc.get("userId", ""))
 
+    # Extract configuration fields (with defaults for backward compatibility)
+    config = {
+        "density": doc.get("density", "Standard"),
+        "audience": doc.get("audience", "Executive Leadership"),
+        "tone": doc.get("tone", ""),
+        "fontFamily": doc.get("fontFamily", "Trebuchet MS"),
+        "fontSize": doc.get("fontSize", "Medium"),
+        "palette": doc.get("palette", "midnight"),
+        "imageSource": doc.get("imageSource", "pexels"),
+        "pageNumbers": doc.get("pageNumbers", True),
+    }
+
     print(f"\n[worker] processing presentation  {pid}")
     print(f"         prompt:  {prompt[:80]}")
     print(f"         slides:  {slides}")
@@ -77,6 +89,7 @@ async def process_presentation(doc: dict) -> None:
             presentation_id=pid,
             user_id=uid,
             outline=outline,
+            **config,
         )
         print(f"[worker] saved -> outlines/{outline_id}  status=pending")
 

@@ -5,12 +5,33 @@ Pricing data and cost calculation for AWS Bedrock models.
 # AWS Bedrock pricing for supported models
 # Source: https://aws.amazon.com/bedrock/pricing/
 KNOWN_PRICING = {
+    "claude-opus-4-8": {
+        "input":           5.00,
+        "output":         25.00,
+        "cache_write_5m":  6.25,
+        "cache_write_1h": 10.00,
+        "cache_read":      0.50,
+    },
     "claude-opus-4-7": {
         "input":           5.00,
         "output":         25.00,
         "cache_write_5m":  6.25,
         "cache_write_1h": 10.00,
         "cache_read":      0.50,
+    },
+    "claude-sonnet-4-6": {
+        "input":           3.00,
+        "output":         15.00,
+        "cache_write_5m":  3.75,
+        "cache_write_1h":  6.00,
+        "cache_read":      0.30,
+    },
+    "claude-haiku-4-5": {
+        "input":           1.00,
+        "output":          5.00,
+        "cache_write_5m":  1.25,
+        "cache_write_1h":  2.00,
+        "cache_read":      0.10,
     },
 }
 

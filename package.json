@@ -1,0 +1,9 @@
+{
+  "name": "bildory-pptx-exporter",
+  "private": true,
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "lucide-static": "^0.523.0",
+    "pptxgenjs": "^3.12.0"
+  }
+}

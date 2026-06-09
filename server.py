@@ -25,8 +25,8 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 from bson import ObjectId
 from datetime import datetime, timezone
 
@@ -71,7 +71,15 @@ app.add_middleware(
 class CreatePresentationRequest(BaseModel):
     userId: str
     prompt: str
-    slides: int = 15
+    slides: int = Field(default=15)
+    density: str = Field(default="Standard", description="Standard, Compact, Spacious")
+    audience: str = Field(default="Executive Leadership")
+    tone: str = Field(default="", description="e.g., formal, conversational, playful")
+    fontFamily: str = Field(default="Trebuchet MS", description="Use system fonts from design guide")
+    fontSize: str = Field(default="Medium", description="Small, Medium, Large")
+    palette: str = Field(default="midnight", description="Color palette name")
+    imageSource: str = Field(default="pexels", description="Stock photos, Pexels, Unsplash, etc.")
+    pageNumbers: bool = Field(default=True)
 
 
 class EditOutlineRequest(BaseModel):
@@ -122,10 +130,28 @@ async def create_presentation(body: CreatePresentationRequest):
     Every submission creates a fresh presentation with a new unique ID.
     Same prompt submitted twice = two independent presentations, two outlines.
     """
+    # Explicitly apply defaults to ensure values are never None
+    density = body.density or "Standard"
+    audience = body.audience or "Executive Leadership"
+    tone = body.tone if body.tone is not None else ""
+    fontFamily = body.fontFamily or "Trebuchet MS"
+    fontSize = body.fontSize or "Medium"
+    palette = body.palette or "midnight"
+    imageSource = body.imageSource or "pexels"
+    pageNumbers = body.pageNumbers if body.pageNumbers is not None else True
+
     pid = await storage.create_presentation(
         user_id=body.userId,
         prompt=body.prompt,
         slides=body.slides,
+        density=density,
+        audience=audience,
+        tone=tone,
+        fontFamily=fontFamily,
+        fontSize=fontSize,
+        palette=palette,
+        imageSource=imageSource,
+        pageNumbers=pageNumbers,
     )
     return {
         "presentationId": pid,
@@ -243,6 +269,33 @@ async def list_outlines(limit: int = 20):
     """List recent outlines (without deck JSON)."""
     docs = await storage.list_outlines(limit=limit)
     return [_to_str_id(d) for d in docs]
+
+
+# ── Deck download ─────────────────────────────────────────────────────────────
+
+@app.get("/api/decks/{deck_id}/download")
+async def download_deck_pptx(deck_id: str):
+    """
+    Download the generated .pptx file for a completed deck.
+    Returns 404 if the deck doesn't exist or the PPTX hasn't been generated yet.
+    """
+    if not ObjectId.is_valid(deck_id):
+        raise HTTPException(400, "Invalid deckId")
+    deck = await storage.get_deck(deck_id)
+    if not deck:
+        raise HTTPException(404, "Deck not found")
+    pptx_path_str = deck.get("pptxPath")
+    if not pptx_path_str:
+        raise HTTPException(404, "PPTX not ready yet — deck generation may still be running")
+    from pathlib import Path
+    pptx_path = Path(pptx_path_str)
+    if not pptx_path.exists():
+        raise HTTPException(404, "PPTX file not found on disk")
+    return FileResponse(
+        pptx_path,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename="presentation.pptx",
+    )
 
 
 # ---------------------------------------------------------------------------

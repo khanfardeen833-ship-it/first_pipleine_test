@@ -69,20 +69,49 @@ async def create_presentation(
     user_id: str,
     prompt: str,
     slides: int,
+    density: str = "Standard",
+    audience: str = "Executive Leadership",
+    tone: str = "",
+    fontFamily: str = "Trebuchet MS",
+    fontSize: str = "Medium",
+    palette: str = "midnight",
+    imageSource: str = "pexels",
+    pageNumbers: bool = True,
 ) -> str:
     """
-    Create a new presentation document. Always creates a fresh document
-    with a new ID — same prompt submitted twice = two independent presentations.
+    Create a new presentation document with configuration metadata.
+    Always creates a fresh document with a new ID.
 
     Returns the new presentation_id (str).
     """
     from bson import ObjectId
     db = _get_db()
     now = _now()
+
+    # Ensure values are never None
+    density = density or "Standard"
+    audience = audience or "Executive Leadership"
+    fontFamily = fontFamily or "Trebuchet MS"
+    fontSize = fontSize or "Medium"
+    palette = palette or "midnight"
+    imageSource = imageSource or "pexels"
+    tone = tone if tone is not None else ""
+    pageNumbers = pageNumbers if pageNumbers is not None else True
+
+    print(f"[storage] Inserting presentation with: fontFamily={fontFamily}, palette={palette}, density={density}")
+
     result = await db.presentations.insert_one({
         "userId": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id,
         "prompt": prompt.strip(),
         "slides": slides,
+        "density": density,
+        "audience": audience,
+        "tone": tone,
+        "fontFamily": fontFamily,
+        "fontSize": fontSize,
+        "palette": palette,
+        "imageSource": imageSource,
+        "pageNumbers": pageNumbers,
         "status": "pending",
         "createdAt": now,
         "updatedAt": now,
@@ -135,9 +164,17 @@ async def create_outline_doc(
     presentation_id: str,
     user_id: str,
     outline: dict,
+    density: str = "Standard",
+    audience: str = "Executive Leadership",
+    tone: str = "",
+    fontFamily: str = "Trebuchet MS",
+    fontSize: str = "Medium",
+    palette: str = "midnight",
+    imageSource: str = "pexels",
+    pageNumbers: bool = True,
 ) -> str:
     """
-    Insert a new document into the outlines collection with status='pending'.
+    Insert a new document into the outlines collection with config metadata.
     Returns the inserted document _id (as str).
     """
     db = _get_db()
@@ -150,6 +187,16 @@ async def create_outline_doc(
         "status": "pending",
         "outline": outline,
         "summary": None,
+        "config": {
+            "density": density,
+            "audience": audience,
+            "tone": tone,
+            "fontFamily": fontFamily,
+            "fontSize": fontSize,
+            "palette": palette,
+            "imageSource": imageSource,
+            "pageNumbers": pageNumbers,
+        },
         "createdAt": _now(),
         "updatedAt": _now(),
     }
@@ -334,6 +381,7 @@ async def create_deck_doc(
         "userId":         user_id,
         "slides":         _build_slides(deck),
         "summary":        summary,
+        "pptxPath":       None,
         "createdAt":      _now(),
     })
     return str(oid)
@@ -344,3 +392,13 @@ async def get_deck(deck_id: str) -> dict | None:
     from bson import ObjectId
     db = _get_db()
     return await db.decks.find_one({"_id": ObjectId(deck_id)})
+
+
+async def set_deck_pptx_path(deck_id: str, pptx_path: str) -> None:
+    """Store the path to the generated .pptx file on disk."""
+    from bson import ObjectId
+    db = _get_db()
+    await db.decks.update_one(
+        {"_id": ObjectId(deck_id)},
+        {"$set": {"pptxPath": pptx_path}},
+    )

@@ -154,7 +154,10 @@ async def run_batch_agent(
     id_offset: int,
     batch_dir: Path,
     slide_plan: dict = None,
+    config: dict = None,
 ) -> tuple:
+    if config is None:
+        config = {}
     batch_size = slide_end - slide_start + 1
     label = f"batch-{slide_start}-{slide_end}"
 
@@ -188,7 +191,22 @@ BUILDER REQUIREMENT:
                 "but must preserve the content direction.\n"
             )
 
-    system_prompt = build_system_prompt(extra=batch_constraint + outline_context)
+    # Inject presentation configuration constraints
+    config_context = ""
+    if config:
+        config_context = f"""
+PRESENTATION CONFIGURATION (apply to all slides in this batch):
+  • Density: {config.get('density', 'Standard')} (affects spacing and layout density)
+  • Audience: {config.get('audience', 'Executive Leadership')} (tailor language and depth)
+  • Tone: {config.get('tone', '')} (e.g., formal, conversational, playful) — {'apply if specified' if config.get('tone') else 'none specified'}
+  • Font Family: {config.get('fontFamily', 'Trebuchet MS')} (use from design guide; do NOT use Google fonts)
+  • Font Size: {config.get('fontSize', 'Medium')} (scale titles/body accordingly)
+  • Palette: {config.get('palette', 'midnight')} (select palette from 11-visual-design-guide.md)
+  • Image Source: {config.get('imageSource', 'pexels')} (for image URLs in add_image calls)
+  • Page Numbers: {config.get('pageNumbers', True)} (include slide numbers if True)
+"""
+
+    system_prompt = build_system_prompt(extra=batch_constraint + outline_context + config_context)
     batch_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(DECK_BUILDER, batch_dir / "deck_builder.py")
 
@@ -217,6 +235,17 @@ async def run_deck_pipeline(outline_id: str) -> None:
     user_id         = str(outline_doc.get("userId", ""))
     outline_data    = outline_doc.get("outline", {})
 
+    # Extract configuration metadata
+    config = outline_doc.get("config", {})
+    density = config.get("density", "Standard")
+    audience = config.get("audience", "Executive Leadership")
+    tone = config.get("tone", "")
+    fontFamily = config.get("fontFamily", "Trebuchet MS")
+    fontSize = config.get("fontSize", "Medium")
+    palette = config.get("palette", "midnight")
+    imageSource = config.get("imageSource", "pexels")
+    pageNumbers = config.get("pageNumbers", True)
+
     db   = storage._get_db()
     pres = await db.presentations.find_one({"_id": ObjectId(presentation_id)})
     if not pres:
@@ -242,7 +271,20 @@ async def run_deck_pipeline(outline_id: str) -> None:
 
     try:
         await storage.set_outline_generating(outline_id)
-        await generate_from_outline(run_id, outline_data)
+        await generate_from_outline(
+            run_id=run_id,
+            outline=outline_data,
+            config={
+                "density": density,
+                "audience": audience,
+                "tone": tone,
+                "fontFamily": fontFamily,
+                "fontSize": fontSize,
+                "palette": palette,
+                "imageSource": imageSource,
+                "pageNumbers": pageNumbers,
+            }
+        )
 
         merged = run_dir / "merged_deck.json"
         if not merged.exists():
@@ -270,6 +312,16 @@ async def run_deck_pipeline(outline_id: str) -> None:
         )
         await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
         print(f"[pipeline] done  decks/{deck_id}  outlines/{outline_id} status=done")
+
+        # Generate .pptx (non-fatal — a failure here doesn't break the pipeline)
+        try:
+            from core.pptx_exporter import export_slides_to_pptx
+            pptx_path = run_dir / "deck.pptx"
+            await export_slides_to_pptx(deck, pptx_path)
+            await storage.set_deck_pptx_path(deck_id, str(pptx_path))
+            print(f"[pipeline] pptx  {pptx_path.name}  ({pptx_path.stat().st_size:,} bytes)")
+        except Exception as pptx_err:
+            print(f"[pipeline] pptx export failed (non-fatal): {pptx_err}")
 
     except Exception as e:
         err = str(e)
@@ -349,17 +401,20 @@ async def create_outline(
 # ---------------------------------------------------------------------------
 # Step 2: Generate slides from an (optionally edited) outline
 # ---------------------------------------------------------------------------
-async def generate_from_outline(run_id: str, outline: dict) -> None:
+async def generate_from_outline(run_id: str, outline: dict, config: dict = None) -> None:
     """
     Phase 2 of the two-step pipeline.
 
     Accepts a run_id (from create_outline) and an outline dict — which may
-    have been edited by the user on the frontend. Fires the parallel Opus
-    batches using the outline as the design brief, then merges and validates.
+    have been edited by the user on the frontend. Accepts optional config dict
+    with density, audience, tone, fontFamily, fontSize, palette, imageSource, pageNumbers.
+    Fires the parallel Opus batches using the outline as the design brief, then merges and validates.
 
     The edited outline is re-saved to outline.json so the final run
     directory always reflects what was actually used for generation.
     """
+    if config is None:
+        config = {}
     run_dir = WORKSPACE / run_id
     if not run_dir.exists():
         raise FileNotFoundError(f"Run directory not found: {run_dir}")
@@ -373,6 +428,10 @@ async def generate_from_outline(run_id: str, outline: dict) -> None:
     user_prompt  = meta["user_prompt"]
     total_slides = meta["total_slides"]
     batch_size   = meta["batch_size"]
+
+    # Merge passed config into metadata and save it back
+    meta["config"] = {**meta.get("config", {}), **config}
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     # Persist the (possibly edited) outline back to disk and MongoDB
     (run_dir / "outline.json").write_text(
@@ -402,7 +461,7 @@ async def generate_from_outline(run_id: str, outline: dict) -> None:
         batch_idx += 1
 
     await _run_batches_and_merge(run_id, run_dir, user_prompt, total_slides,
-                                  batches, outline)
+                                  batches, outline, config)
 
 
 # ---------------------------------------------------------------------------
@@ -459,13 +518,17 @@ async def _run_batches_and_merge(
     total_slides: int,
     batches: list,
     outline,          # dict | None
+    config: dict = None,
 ) -> None:
+    if config is None:
+        config = {}
+
     model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
     start_time = time.time()
 
     tasks = [
         run_batch_agent(user_prompt, s, e, total_slides, off, bd,
-                        slide_plan=outline)
+                        slide_plan=outline, config=config)
         for s, e, off, bd in batches
     ]
     results = await asyncio.gather(*tasks)
@@ -620,10 +683,10 @@ def _aggregate_trackers(trackers: list) -> dict:
     for t in trackers:
         agg["input_tokens"]  += t.input_tokens
         agg["output_tokens"] += t.output_tokens
-        agg["cache_write"]   += t.get_total_breakdown().get("cache_write_tok", 0)
+        agg["cache_write"]   += t.get_total_breakdown().get("cache_write_tok") or 0
         agg["cache_read"]    += t.cache_read
-        agg["sdk_cost"]      += t.sdk_reported_cost
-        agg["calc_cost"]     += t.get_total_breakdown().get("total", 0.0)
+        agg["sdk_cost"]      += t.sdk_reported_cost or 0.0
+        agg["calc_cost"]     += t.get_total_breakdown().get("total") or 0.0
         agg["turns"]         += t.turns
         agg["tool_calls"]    += len(t.tool_calls)
         agg["files_written"] += t.files_written

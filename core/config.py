@@ -30,6 +30,8 @@ CORE_SKILL_FILES = [
     "08-changelog-sync.md",
     "09-zindex-rules.md",
     "10-design-rules.md",
+    "11-visual-design-guide.md",
+    "12-visual-richness.md",
 ]
 
 ELEMENT_SKILL_FILES = [

@@ -178,7 +178,7 @@ class Slide:
         font_size: int | None = None,
         font_weight: int | None = None,
         line_height: float | None = None,
-        font_family: str = "Space Grotesk",
+        font_family: str = "Trebuchet MS",
         text_align: str = "left",
         rotation: int = 0,
         style: dict | None = None,

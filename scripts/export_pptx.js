@@ -66,12 +66,24 @@ const ICON_ALIASES = {
   'arrow-circle-down':    'circle-arrow-down',
   'eye-off':              'eye-closed',
   'loader':               'loader-circle',
+  'help-circle':          'circle-question-mark',
+  'circle-help':          'circle-question-mark',
+  'question-mark':        'circle-question-mark',
+  'help':                 'circle-question-mark',
+  'x-circle':             'circle-x',
+  'check-circle':         'circle-check',
+  'check-circle-2':       'circle-check-big',
+  'more-horizontal':      'ellipsis',
+  'more-vertical':        'ellipsis-vertical',
 };
 
 function toKebab(name) {
   // Strip trailing "Icon" suffix some agents add (e.g. HandshakeIcon → handshake)
   const stripped = name.replace(/Icon$/, '');
-  return stripped.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+  return stripped
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/([a-zA-Z])([0-9])/g, '$1-$2')   // Building2 → building-2
+    .toLowerCase();
 }
 
 function loadIconDataUri(iconName, color) {
@@ -160,7 +172,7 @@ function renderIcon(pptx, slide, el, changelogData) {
   const pos = changelogData?.position || { x: 0, y: 0 };
   const width = changelogData?.width || 48;
   const height = changelogData?.height || 48;
-  const color = changelogData?.style?.color || '#000000';
+  const color = changelogData?.color || changelogData?.style?.color || el.color || '#000000';
   const iconName = el.iconName || 'question-mark';
 
   try {
@@ -177,24 +189,67 @@ function renderIcon(pptx, slide, el, changelogData) {
   }
 }
 
-function renderImage(slide, el, changelogData, imageCache) {
-  const pos = changelogData?.position || { x: 0, y: 0 };
-  const width = changelogData?.width || 560;
-  const height = changelogData?.height || 360;
-  const src = el.src || '';
+function renderImage(pptx, slide, el, changelogData, imageCache) {
+  // Support both flat format (el has all props) and split format (props in changelogData)
+  const cl = changelogData || {};
+  const pos    = el.position  || cl.position  || { x: 0, y: 0 };
+  const width  = el.width     ?? cl.width     ?? 560;
+  const height = el.height    ?? cl.height    ?? 360;
+  const src    = el.src || '';
 
   const dataUri = imageCache && imageCache.get(src);
   if (!dataUri) {
     throw new Error(`Image not fetched: ${src.substring(0, 60)}`);
   }
 
+  const rotation  = el.rotation  ?? cl.rotation  ?? 0;
+  const opacity   = el.opacity   ?? cl.opacity   ?? 1;
+  const shadow    = el.shadow    || cl.shadow    || {};
+  const border    = el.border    || cl.border    || {};
+  const overlay   = el.overlay   || cl.overlay   || {};
+
+  // ── shadow ────────────────────────────────────────────────────────────────
+  const pptxShadow = shadow.enabled ? {
+    type:    'outer',
+    blur:    shadow.blur    || 0,
+    color:   hex(shadow.color || '#000000'),
+    opacity: (shadow.opacity || 0) / 100,
+    offset:  shadow.distance || 0,
+    angle:   shadow.angle   || 135,
+  } : undefined;
+
+  // ── border (standard only — special styles not supported in PPTX) ─────────
+  const pptxLine = border.type === 'standard' ? {
+    color: hex(border.color || '#000000'),
+    pt:    border.width || 1,
+  } : undefined;
+
   slide.addImage({
-    data: dataUri,
-    x: px2in(pos.x),
-    y: px2in(pos.y),
-    w: px2in(width),
-    h: px2in(height),
+    data:         dataUri,
+    x:            px2in(pos.x),
+    y:            px2in(pos.y),
+    w:            px2in(width),
+    h:            px2in(height),
+    rotate:       rotation || undefined,
+    transparency: opacity < 1 ? Math.round((1 - opacity) * 100) : undefined,
+    shadow:       pptxShadow,
+    line:         pptxLine,
   });
+
+  // ── overlay: render as semi-transparent shape on top (blend mode ignored) ─
+  if (overlay.color && overlay.opacity > 0) {
+    slide.addShape(pptx.ShapeType.rect, {
+      x: px2in(pos.x),
+      y: px2in(pos.y),
+      w: px2in(width),
+      h: px2in(height),
+      fill: {
+        color:        hex(overlay.color),
+        transparency: Math.round((1 - overlay.opacity / 100) * 100),
+      },
+      line: { color: hex(overlay.color), width: 0 },
+    });
+  }
 }
 
 const CHART_TYPE_MAP = {
@@ -308,48 +363,97 @@ function renderTable(slide, el, changelogData) {
   }
 }
 
+// ── Element kind classifier ───────────────────────────────────────────────────
+const TEXT_TYPES = new Set(['text','title','subtitle','heading','subheading','paragraph','caption']);
+
+function classifyKind(el) {
+  const t = (el.type || '').toLowerCase();
+  if (t === 'image') return 'image';
+  if (t === 'shape') return 'shape';
+  if (t === 'icon')  return 'icon';
+  if (t === 'chart') return 'chart';
+  if (t === 'table') return 'table';
+  if (TEXT_TYPES.has(t)) return 'text';
+  return null;
+}
+
 // ── Main converter ────────────────────────────────────────────────────────────
 async function convertToPptx(deckData, outputPath) {
   const pptx = new PptxGenJS();
-  pptx.layout = 'LAYOUT_WIDE';   // 13.33×7.5 inches (16:9, 96 DPI)
+  pptx.layout = 'LAYOUT_WIDE';
   pptx.author = 'Bildory';
 
-  const slides = deckData.files?.content?.slides || [];
-  const changelog = deckData.files?.changelog?.slides || {};
-  const contentArrays = deckData.files?.content || {};
+  // ── Detect format ─────────────────────────────────────────────────────────
+  // Flat format:  data.slides[].elements[]  (editor / friend's JSON)
+  // Split format: data.files.content.slides[].textElements[] + separate arrays
+  const rawSlides = deckData.slides || deckData.files?.content?.slides || [];
+  const isFlatFormat = rawSlides.length > 0 && Array.isArray(rawSlides[0]?.elements);
 
-  // Build maps of elements by slideId
-  const elementsBySlide = {};
-  for (const slideData of slides) {
-    elementsBySlide[slideData.id] = {
-      textElements: slideData.textElements || [],
-      shapeElements: [],
-      iconElements: [],
-      imageElements: [],
-      chartElements: [],
-      tableElements: [],
+  // ── Build per-slide element lists ─────────────────────────────────────────
+  const slideList = [];   // [{ slideData, allElements[] }]
+
+  if (isFlatFormat) {
+    for (const slideData of rawSlides) {
+      const allElements = (slideData.elements || []).map(el => ({
+        el,
+        cl: el,   // all props are inline — element doubles as its changelog
+        kind: classifyKind(el),
+        zIndex: el.zIndex || 0,
+      })).filter(e => e.kind !== null);
+      allElements.sort((a, b) => a.zIndex - b.zIndex);
+      slideList.push({ slideData, allElements });
+    }
+  } else {
+    // Split format: merge content + changelog
+    const changelog = deckData.files?.changelog?.slides || {};
+    const contentArrays = deckData.files?.content || {};
+
+    // group non-text elements by slideId, keeping the kind from the source
+    // array — split-format content records carry no "type" field
+    const ARRAY_KIND = {
+      shapeElements: 'shape', chartElements: 'chart', iconElements: 'icon',
+      imageElements: 'image', tableElements: 'table',
     };
-  }
-
-  // Distribute non-text elements to their respective slides based on slideId
-  for (const arrayKey of ['shapeElements', 'chartElements', 'iconElements', 'imageElements', 'tableElements']) {
-    const array = contentArrays[arrayKey] || [];
-    for (const el of array) {
-      if (el.slideId && elementsBySlide[el.slideId]) {
-        elementsBySlide[el.slideId][arrayKey].push(el);
+    const nonTextBySlide = {};
+    for (const [arrayKey, kind] of Object.entries(ARRAY_KIND)) {
+      for (const el of (contentArrays[arrayKey] || [])) {
+        if (!el.slideId) continue;
+        (nonTextBySlide[el.slideId] = nonTextBySlide[el.slideId] || []).push({ el, kind });
       }
+    }
+
+    for (const slideData of rawSlides) {
+      const clMap = (changelog[slideData.id] || {}).elements || {};
+      const allElements = [];
+
+      for (const el of (slideData.textElements || [])) {
+        const cl = clMap[el.id] || {};
+        allElements.push({ el, cl, kind: 'text', zIndex: cl.zIndex || 0 });
+      }
+      for (const { el, kind } of (nonTextBySlide[slideData.id] || [])) {
+        const cl = clMap[el.id] || {};
+        allElements.push({ el, cl, kind, zIndex: cl.zIndex || 0 });
+      }
+      allElements.sort((a, b) => a.zIndex - b.zIndex);
+      slideList.push({ slideData, allElements });
     }
   }
 
-  // Pre-fetch all image URLs concurrently before rendering
-  const allImageUrls = (contentArrays.imageElements || [])
-    .map(el => el.src)
-    .filter(src => src && (src.startsWith('http://') || src.startsWith('https://')));
+  // ── Pre-fetch all image URLs ───────────────────────────────────────────────
+  const allImageUrls = [];
+  for (const { allElements } of slideList) {
+    for (const { el, kind } of allElements) {
+      if (kind === 'image' && el.src && (el.src.startsWith('http://') || el.src.startsWith('https://'))) {
+        allImageUrls.push(el.src);
+      }
+    }
+  }
+  const uniqueUrls = [...new Set(allImageUrls)];
 
   const imageCache = new Map();
-  if (allImageUrls.length > 0) {
-    process.stderr.write(`  [images] fetching ${allImageUrls.length} image(s)...\n`);
-    await Promise.all(allImageUrls.map(async (url) => {
+  if (uniqueUrls.length > 0) {
+    process.stderr.write(`  [images] fetching ${uniqueUrls.length} image(s)...\n`);
+    await Promise.all(uniqueUrls.map(async (url) => {
       try {
         const dataUri = await fetchImageAsDataUri(url);
         imageCache.set(url, dataUri);
@@ -360,66 +464,28 @@ async function convertToPptx(deckData, outputPath) {
     }));
   }
 
-  for (const slideData of slides) {
+  // ── Render slides ─────────────────────────────────────────────────────────
+  for (const { slideData, allElements } of slideList) {
     const slide = pptx.addSlide();
-    const bgColor = hex(slideData.backgroundColor || '#ffffff');
-    slide.background = { color: bgColor };
-
-    const slideChangelogData = changelog[slideData.id] || { elements: {} };
-    const elementChangelogMap = slideChangelogData.elements || {};
-    const slideElements = elementsBySlide[slideData.id];
-
-    // Build unified list with zIndex from changelog, then sort ascending
-    // so background shapes render first and text renders on top
-    const allElements = [];
-
-    for (const el of slideElements.textElements) {
-      const cl = elementChangelogMap[el.id] || {};
-      allElements.push({ el, cl, kind: 'text', zIndex: cl.zIndex || 0 });
-    }
-    for (const el of slideElements.shapeElements) {
-      const cl = elementChangelogMap[el.id] || {};
-      allElements.push({ el, cl, kind: 'shape', zIndex: cl.zIndex || 0 });
-    }
-    for (const el of slideElements.iconElements) {
-      const cl = elementChangelogMap[el.id] || {};
-      allElements.push({ el, cl, kind: 'icon', zIndex: cl.zIndex || 0 });
-    }
-    for (const el of slideElements.imageElements) {
-      const cl = elementChangelogMap[el.id] || {};
-      allElements.push({ el, cl, kind: 'image', zIndex: cl.zIndex || 0 });
-    }
-    for (const el of slideElements.chartElements) {
-      const cl = elementChangelogMap[el.id] || {};
-      allElements.push({ el, cl, kind: 'chart', zIndex: cl.zIndex || 0 });
-    }
-    for (const el of slideElements.tableElements) {
-      const cl = elementChangelogMap[el.id] || {};
-      allElements.push({ el, cl, kind: 'table', zIndex: cl.zIndex || 0 });
-    }
-
-    allElements.sort((a, b) => a.zIndex - b.zIndex);
+    slide.background = { color: hex(slideData.backgroundColor || '#ffffff') };
 
     for (const { el, cl, kind } of allElements) {
       try {
         if (kind === 'text') {
-          const type = (el.type || '').toLowerCase();
-          if (['text', 'title', 'subtitle', 'heading', 'subheading', 'paragraph', 'caption'].includes(type)) {
-            renderText(slide, el, cl);
-          }
+          renderText(slide, el, cl);
         } else if (kind === 'shape') {
           renderShape(pptx, slide, el, cl);
         } else if (kind === 'icon') {
           renderIcon(pptx, slide, el, cl);
         } else if (kind === 'image') {
-          renderImage(slide, el, cl, imageCache);
+          renderImage(pptx, slide, el, cl, imageCache);
         } else if (kind === 'chart') {
           renderChart(pptx, slide, el, cl);
         } else if (kind === 'table') {
           renderTable(slide, el, cl);
         }
       } catch (err) {
-        process.stderr.write(`  [warn] slide ${slideData.id} / ${kind} ${el.id}: ${err.message}\n`);
+        process.stderr.write(`  [warn] slide ${slideData.id} / ${kind} ${el.id || '?'}: ${err.message}\n`);
       }
     }
   }

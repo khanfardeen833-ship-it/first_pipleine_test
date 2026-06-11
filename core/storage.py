@@ -74,7 +74,7 @@ async def create_presentation(
     tone: str = "",
     fontFamily: str = "Trebuchet MS",
     fontSize: str = "Medium",
-    palette: str = "midnight",
+    palette: str = "auto",
     imageSource: str = "pexels",
     pageNumbers: bool = True,
 ) -> str:
@@ -93,7 +93,7 @@ async def create_presentation(
     audience = audience or "Executive Leadership"
     fontFamily = fontFamily or "Trebuchet MS"
     fontSize = fontSize or "Medium"
-    palette = palette or "midnight"
+    palette = palette or "auto"
     imageSource = imageSource or "pexels"
     tone = tone if tone is not None else ""
     pageNumbers = pageNumbers if pageNumbers is not None else True
@@ -169,7 +169,7 @@ async def create_outline_doc(
     tone: str = "",
     fontFamily: str = "Trebuchet MS",
     fontSize: str = "Medium",
-    palette: str = "midnight",
+    palette: str = "auto",
     imageSource: str = "pexels",
     pageNumbers: bool = True,
 ) -> str:

@@ -8,6 +8,7 @@ Endpoints:
   PUT    /api/outlines/:id               - Edit the outline before generating slides
   POST   /api/outlines/:id/generate      - Trigger full deck generation from outline
   GET    /api/outlines/:id/deck          - Fetch the final deck JSON
+  GET    /api/outlines/:id/deck/download - Download deck as .json file (editor format)
 
 Run:
   python server.py
@@ -25,7 +26,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from bson import ObjectId
 from datetime import datetime, timezone
@@ -77,7 +78,7 @@ class CreatePresentationRequest(BaseModel):
     tone: str = Field(default="", description="e.g., formal, conversational, playful")
     fontFamily: str = Field(default="Trebuchet MS", description="Use system fonts from design guide")
     fontSize: str = Field(default="Medium", description="Small, Medium, Large")
-    palette: str = Field(default="midnight", description="Color palette name")
+    palette: str = Field(default="auto", description="Color palette name, or 'auto' to let the art director pick the best fit for the topic")
     imageSource: str = Field(default="pexels", description="Stock photos, Pexels, Unsplash, etc.")
     pageNumbers: bool = Field(default=True)
 
@@ -136,7 +137,7 @@ async def create_presentation(body: CreatePresentationRequest):
     tone = body.tone if body.tone is not None else ""
     fontFamily = body.fontFamily or "Trebuchet MS"
     fontSize = body.fontSize or "Medium"
-    palette = body.palette or "midnight"
+    palette = body.palette or "auto"
     imageSource = body.imageSource or "pexels"
     pageNumbers = body.pageNumbers if body.pageNumbers is not None else True
 
@@ -262,6 +263,41 @@ async def get_deck(outline_id: str):
         "slides":  deck_doc.get("slides"),
         "summary": deck_doc.get("summary"),
     })
+
+
+@app.get("/api/outlines/{outline_id}/deck/download")
+async def download_deck_json(outline_id: str):
+    """
+    Download the flat deck JSON as a .json file.
+    This is the same format the editor uses — slides[].elements[] with all
+    properties inline. Share this file with anyone who needs the deck data.
+    """
+    if not ObjectId.is_valid(outline_id):
+        raise HTTPException(400, "Invalid outlineId")
+    doc = await storage.get_outline(outline_id)
+    if not doc:
+        raise HTTPException(404, "Outline not found")
+    if doc.get("status") != "done":
+        raise HTTPException(409, f"Deck not ready yet — status is '{doc.get('status')}'")
+    deck_doc = await storage.get_deck(str(doc["deckId"]))
+    if not deck_doc:
+        raise HTTPException(404, "Deck document not found")
+
+    import json
+    title = (doc.get("outline", {}).get("title") or "deck").replace(" ", "_")[:40]
+    filename = f"{title}.json"
+    payload = json.dumps({
+        "outlineId":      outline_id,
+        "presentationId": str(doc.get("presentationId", "")),
+        "userId":         str(deck_doc.get("userId", "")),
+        "slides":         deck_doc.get("slides", []),
+    }, ensure_ascii=False, indent=2)
+
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/outlines")

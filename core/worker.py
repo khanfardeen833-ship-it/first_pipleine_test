@@ -72,7 +72,7 @@ async def process_presentation(doc: dict) -> None:
         "tone": doc.get("tone", ""),
         "fontFamily": doc.get("fontFamily", "Trebuchet MS"),
         "fontSize": doc.get("fontSize", "Medium"),
-        "palette": doc.get("palette", "midnight"),
+        "palette": doc.get("palette") or "auto",
         "imageSource": doc.get("imageSource", "pexels"),
         "pageNumbers": doc.get("pageNumbers", True),
     }

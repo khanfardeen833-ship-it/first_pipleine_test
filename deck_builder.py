@@ -352,8 +352,14 @@ class Slide:
         border_radius: int = 0,
         opacity: float = 1,
         rotation: int = 0,
+        object_fit: str = "cover",
+        filter: str = "none",
+        blur: int = 0,
+        scale_x: float = 1,
+        scale_y: float = 1,
         shadow: dict | None = None,
         border: dict | None = None,
+        overlay: dict | None = None,
         crop_ratio: str = "free",
         crop_rect: dict | None = None,
         focus_point: dict | None = None,
@@ -380,8 +386,10 @@ class Slide:
             "spread": 0,
         }
         border_block = {"type": "none", "width": 4, "color": "#000000", "specialStyle": None}
+        overlay_block = {"color": None, "opacity": 0, "blendMode": "normal"}
         _merge(shadow_block, shadow)
         _merge(border_block, border)
+        _merge(overlay_block, overlay)
         change = {
             "slideId": self.id,
             "position": {"x": x, "y": y},
@@ -390,12 +398,20 @@ class Slide:
             "rotation": rotation,
             "zIndex": z_index,
             "opacity": opacity,
+            "objectFit": object_fit,
             "borderRadius": border_radius,
+            "filter": filter,
+            "blur": blur,
+            "scaleX": scale_x,
+            "scaleY": scale_y,
             "shadow": shadow_block,
             "border": border_block,
+            "overlay": overlay_block,
             "cropRatio": crop_ratio,
             "cropRect": crop_rect or {"left": 0, "top": 0, "right": 0, "bottom": 0},
             "focusPoint": focus_point or {"x": 50, "y": 50},
+            "cropScale": 1,
+            "cropAppliedCount": 0,
             "updatedAt": self.deck.now,
         }
         _merge(change, changelog)

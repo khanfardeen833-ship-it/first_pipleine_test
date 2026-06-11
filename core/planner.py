@@ -138,7 +138,11 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
         f"- Use real company names, product names, statistics, and current events\n"
         f"- Mix bullet styles: year-labeled facts, examples, quotes, stats, observations\n"
         f"- Trend topics: label slides 'Trend N: [Name]'\n"
-        f"- 2-4 bullets per slide\n\n"
+        f"- 2-4 bullets per slide\n"
+        f"- LAYOUT VARIETY IS MANDATORY: use at least 4 distinct layout types "
+        f"across the deck; no more than a third of slides may be layout=bullets; "
+        f"never two identical layouts back-to-back. Prefer two_column, "
+        f"three_column, timeline, chart, quote, or table wherever the content fits\n\n"
         f"Return ONLY the JSON object."
     )
 

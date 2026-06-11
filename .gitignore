@@ -14,3 +14,4 @@ preview*.html
 phase1_*.json
 phase1_*.log
 ai_presentation_market_study.json
+node_modules/

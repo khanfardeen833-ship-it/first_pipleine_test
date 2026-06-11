@@ -194,6 +194,13 @@ BUILDER REQUIREMENT:
     # Inject presentation configuration constraints
     config_context = ""
     if config:
+        palette_cfg = config.get("palette") or "auto"
+        if palette_cfg.strip().lower() == "auto":
+            palette_line = ("AUTO — choose the best-fitting palette from "
+                            "11-visual-design-guide.md for this topic and use it "
+                            "consistently on every slide")
+        else:
+            palette_line = f"{palette_cfg} (select palette from 11-visual-design-guide.md)"
         config_context = f"""
 PRESENTATION CONFIGURATION (apply to all slides in this batch):
   • Density: {config.get('density', 'Standard')} (affects spacing and layout density)
@@ -201,7 +208,7 @@ PRESENTATION CONFIGURATION (apply to all slides in this batch):
   • Tone: {config.get('tone', '')} (e.g., formal, conversational, playful) — {'apply if specified' if config.get('tone') else 'none specified'}
   • Font Family: {config.get('fontFamily', 'Trebuchet MS')} (use from design guide; do NOT use Google fonts)
   • Font Size: {config.get('fontSize', 'Medium')} (scale titles/body accordingly)
-  • Palette: {config.get('palette', 'midnight')} (select palette from 11-visual-design-guide.md)
+  • Palette: {palette_line}
   • Image Source: {config.get('imageSource', 'pexels')} (for image URLs in add_image calls)
   • Page Numbers: {config.get('pageNumbers', True)} (include slide numbers if True)
 """
@@ -242,7 +249,7 @@ async def run_deck_pipeline(outline_id: str) -> None:
     tone = config.get("tone", "")
     fontFamily = config.get("fontFamily", "Trebuchet MS")
     fontSize = config.get("fontSize", "Medium")
-    palette = config.get("palette", "midnight")
+    palette = config.get("palette") or "auto"
     imageSource = config.get("imageSource", "pexels")
     pageNumbers = config.get("pageNumbers", True)
 
@@ -269,39 +276,73 @@ async def run_deck_pipeline(outline_id: str) -> None:
 
     print(f"\n[pipeline] starting  outline={outline_id}  run={run_id}  slides={total_slides}")
 
+    pipeline_config = {
+        "density": density,
+        "audience": audience,
+        "tone": tone,
+        "fontFamily": fontFamily,
+        "fontSize": fontSize,
+        "palette": palette,
+        "imageSource": imageSource,
+        "pageNumbers": pageNumbers,
+    }
+
+    # DECK_ENGINE=slidegen (default) — direct per-slide API calls, ~30-90s
+    #   depending on SLIDEGEN_MODE (fast | premium | director).
+    # DECK_ENGINE=agent — legacy parallel batch agents writing build.py.
+    engine = os.environ.get("DECK_ENGINE", "slidegen").lower()
+
     try:
         await storage.set_outline_generating(outline_id)
-        await generate_from_outline(
-            run_id=run_id,
-            outline=outline_data,
-            config={
-                "density": density,
-                "audience": audience,
-                "tone": tone,
-                "fontFamily": fontFamily,
-                "fontSize": fontSize,
-                "palette": palette,
-                "imageSource": imageSource,
-                "pageNumbers": pageNumbers,
+
+        if engine == "slidegen":
+            from core.slidegen import generate_deck_per_slide
+            deck, stats = await generate_deck_per_slide(
+                outline_data, pipeline_config, run_dir=run_dir,
+            )
+            merged = run_dir / "merged_deck.json"
+            passed, problems, warnings = run_validation(merged)
+            print(f"  [{'PASS' if passed else 'FAIL'}] merged_deck.json")
+            for w in warnings:
+                print(f"    ! {w}")
+            for p in problems:
+                print(f"    - {p}")
+            mongo_summary = {
+                "duration_seconds": stats["total_seconds"],
+                "cost_usd":         stats["cost_usd"],
+                "tokens": {
+                    "input":       stats["input_tokens"],
+                    "output":      stats["output_tokens"],
+                    "cache_write": stats["cache_write"],
+                    "cache_read":  stats["cache_read"],
+                },
+                "validation_passed": passed,
+                "engine":            f"slidegen/{stats['mode']}",
             }
-        )
+        else:
+            await generate_from_outline(
+                run_id=run_id,
+                outline=outline_data,
+                config=pipeline_config,
+            )
 
-        merged = run_dir / "merged_deck.json"
-        if not merged.exists():
-            raise RuntimeError("merged_deck.json was not produced")
+            merged = run_dir / "merged_deck.json"
+            if not merged.exists():
+                raise RuntimeError("merged_deck.json was not produced")
 
-        deck        = json.loads(merged.read_text(encoding="utf-8"))
-        summary_raw = {}
-        sp = run_dir / "run_summary.json"
-        if sp.exists():
-            summary_raw = json.loads(sp.read_text(encoding="utf-8"))
+            deck        = json.loads(merged.read_text(encoding="utf-8"))
+            summary_raw = {}
+            sp = run_dir / "run_summary.json"
+            if sp.exists():
+                summary_raw = json.loads(sp.read_text(encoding="utf-8"))
 
-        mongo_summary = {
-            "duration_seconds":  summary_raw.get("run", {}).get("duration_seconds"),
-            "cost_usd":          summary_raw.get("cost", {}).get("sdk_reported"),
-            "tokens":            summary_raw.get("tokens", {}),
-            "validation_passed": summary_raw.get("output", {}).get("validation_passed"),
-        }
+            mongo_summary = {
+                "duration_seconds":  summary_raw.get("run", {}).get("duration_seconds"),
+                "cost_usd":          summary_raw.get("cost", {}).get("sdk_reported"),
+                "tokens":            summary_raw.get("tokens", {}),
+                "validation_passed": summary_raw.get("output", {}).get("validation_passed"),
+                "engine":            "agent",
+            }
 
         deck_id = await storage.create_deck_doc(
             outline_id=outline_id,
@@ -372,13 +413,6 @@ async def create_outline(
     except Exception as e:
         print(f"\n  [planner] outline failed ({e})")
 
-    # Persist to MongoDB
-    try:
-        await storage.save_outline(run_id, user_prompt, total_slides, batch_size, outline)
-        print(f"  [mongo] outline saved -> presentations/{run_id}")
-    except Exception as e:
-        print(f"  [mongo] save_outline failed ({e}) — continuing")
-
     # Persist run metadata so generate_from_outline can resume without re-reading config
     meta = {
         "run_id": run_id,
@@ -433,16 +467,10 @@ async def generate_from_outline(run_id: str, outline: dict, config: dict = None)
     meta["config"] = {**meta.get("config", {}), **config}
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    # Persist the (possibly edited) outline back to disk and MongoDB
+    # Persist the (possibly edited) outline back to disk
     (run_dir / "outline.json").write_text(
         json.dumps(outline, indent=2), encoding="utf-8"
     )
-    try:
-        await storage.update_outline(run_id, outline)
-        await storage.set_generating(run_id)
-        print(f"  [mongo] outline updated, status -> generating")
-    except Exception as e:
-        print(f"  [mongo] update_outline failed ({e}) — continuing")
 
     print(f"\n--- generating slides from outline ---")
     print(f"  run_id:  {run_id}")
@@ -631,33 +659,6 @@ async def _run_batches_and_merge(
         },
     }
     write_run_summary(run_dir, summary)
-
-    # Persist final deck + summary to MongoDB
-    try:
-        mongo_summary = {
-            "duration_seconds": round(elapsed, 2),
-            "cost_usd": agg["sdk_cost"],
-            "tokens": {
-                "output": agg["output_tokens"],
-                "input": agg["input_tokens"],
-                "cache_write": agg["cache_write"],
-                "cache_read": agg["cache_read"],
-            },
-            "validation_passed": validation_passed,
-            "batches": len(batches),
-        }
-        deck_json = None
-        if merge_ok and merged_path.exists():
-            with open(merged_path, "r", encoding="utf-8") as f:
-                deck_json = json.load(f)
-        await storage.save_deck(run_id, deck_json, mongo_summary)
-        print(f"  [mongo] deck saved -> presentations/{run_id}  (status: complete)")
-    except Exception as e:
-        print(f"  [mongo] save_deck failed ({e})")
-        try:
-            await storage.save_failed(run_id, str(e))
-        except Exception:
-            pass
 
     # Print summary
     print(f"\n--- run summary ---")

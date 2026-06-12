@@ -76,7 +76,7 @@ class CreatePresentationRequest(BaseModel):
     density: str = Field(default="Standard", description="Standard, Compact, Spacious")
     audience: str = Field(default="Executive Leadership")
     tone: str = Field(default="", description="e.g., formal, conversational, playful")
-    fontFamily: str = Field(default="Trebuchet MS", description="Use system fonts from design guide")
+    fontFamily: str = Field(default="auto", description="System font from design guide, or 'auto' to let the art director pick the pairing that fits the topic")
     fontSize: str = Field(default="Medium", description="Small, Medium, Large")
     palette: str = Field(default="auto", description="Color palette name, or 'auto' to let the art director pick the best fit for the topic")
     imageSource: str = Field(default="pexels", description="Stock photos, Pexels, Unsplash, etc.")

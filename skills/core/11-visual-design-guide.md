@@ -44,6 +44,17 @@ on every deck — match the mood and subject.
 | Berry & Cream | `#6D2E46` | `#A26769` | `#ECE2D0` |
 | Sage Calm | `#84B59F` | `#69A297` | `#50808E` |
 | Cherry Bold | `#990011` | `#FCF6F5` | `#2F3C7E` |
+| Noir & Champagne | `#15171B` | `#C9A86A` | `#F4F1EA` |
+| Deep Navy & Gold | `#0B1F3A` | `#C9A227` | `#F7F5F0` |
+| Graphite & Electric | `#1C1F26` | `#3E7BFA` | `#F5F7FA` |
+| Ivory Editorial | `#FFFFFF` | `#141414` | `#B4833E` |
+
+**Premium / executive topics** (luxury goods, real estate, finance, investor
+briefings, consulting): default to Noir & Champagne, Deep Navy & Gold,
+Charcoal Minimal, or Ivory Editorial. Near-black or pure-white fields with one
+metallic accent and hard contrast read expensive; muted dusty mid-tones
+(Berry & Cream, Warm Terracotta, Sage Calm) read crafty or dated for these
+topics — reserve them for artisanal, wellness, or heritage subjects.
 
 ---
 
@@ -232,7 +243,7 @@ These are hard rules, not suggestions.
 - **Do not center body text** — left-align paragraphs and bullet lists; center only slide titles
 - **Do not use accent lines or underlines under titles** — use whitespace or a background color change instead; underlines are a hallmark of AI-generated slides
 - **Do not add full-width colored bars, header ribbons, or footer stripes** — decorative horizontal bands read as AI slop unless the user explicitly requested them
-- **Do not default to cream/beige backgrounds** — use `#ffffff` or a palette color; never use `#F5F5DC`, `#FAF0E6`, `#FAEBD7`, or similar warm-neutral defaults
+- **Do not default to cream/beige backgrounds** — use `#ffffff` or a palette color; never use `#F5F5DC`, `#FAF0E6`, `#FAEBD7`, or similar warm-neutral defaults — and do not fill stat cards or content panels with beige/cream blocks; use white, a deep palette color, or a thin-stroked outline panel instead
 - **Do not make text-only slides** — every slide needs at least one shape, icon, image, or chart
 - **Do not let text overflow its container** — if content is too long, reduce font size, split across two slides, or enlarge the text box; never leave text cut off
 - **Do not use low-contrast elements** — all text and icons must have strong contrast against their background; avoid light gray text on off-white backgrounds or dark icons on dark shapes

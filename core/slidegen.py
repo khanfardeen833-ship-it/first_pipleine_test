@@ -38,6 +38,7 @@ THINKING_EFFORT = "high"    # adaptive thinking = the design deliberation the
                             # agent path gets for free; forced tool_choice
                             # would disable it, so we use auto + instruction
 RETRIES_PER_SLIDE = 2
+MIN_ELEMENTS_PER_SLIDE = 14   # premium floor — thin slides are rejected and retried
 
 # Generation modes (env SLIDEGEN_MODE overrides):
 #   fast     — forced tool call, no thinking, no plan. ~31s / ~$0.5
@@ -179,7 +180,8 @@ SPEC FORMAT:
            opacity, rotation
     icon:  icon_name, x, y, size, color, opacity, rotation
     image: src, x, y, width, height, is_background, border_radius, opacity,
-           object_fit, filter, blur, shadow, border, overlay, focus_point
+           rotation, object_fit, filter, blur, scale_x, scale_y, shadow,
+           border, overlay, crop_ratio, crop_rect, focus_point
     chart: chart_type, chart_config, x, y, width, height
     table: cells, x, y, col_widths, row_heights, font_size, table_color,
            table_bg, table_bold, table_italic, table_align
@@ -198,28 +200,55 @@ PREMIUM DESIGN REQUIREMENTS — this is a paid, agency-grade deck:
 - Follow the COMPOSITION ARCHETYPE assigned in the request. It dictates the
   slide's structural skeleton; never fall back to a plain bullet list.
 - Layer deliberately: background field -> decorative geometry (offset panels,
-  accent bars, thin rules, oversized ghost numbers/letters at 5-10% opacity)
-  -> content cards/panels -> imagery with intentional filter+overlay ->
-  icon badges -> typography. Aim for 14-24 elements.
-- Typography hierarchy must be dramatic: one oversized anchor (a 100-200pt
-  ghost number, a 54-72pt headline, or a 60-90pt stat) per slide.
+  accent bars, thin rules) -> content cards/panels -> imagery with intentional
+  filter+overlay -> icon badges -> typography. Aim for 18-30 elements; 14 is
+  the HARD MINIMUM for every slide — including title, quote, and closing
+  slides. Specs with fewer than 14 elements are rejected and regenerated.
+- Reach the element count with purposeful layers, never clutter. The premium
+  toolkit: kicker chip (small outlined/filled rect + letterspaced caption),
+  thin accent rules (2-4px shapes), corner frame ticks, layered offset panels
+  behind content blocks, vertical divider lines between columns, ellipse icon
+  badges, a stat ribbon (number + label pairs separated by thin dividers),
+  duotone image panels, and the page-number caption.
+- Typography hierarchy must be dramatic: one oversized anchor (a 54-72pt
+  headline or a 60-90pt stat) per slide.
+- Ghost glyphs (oversized background numbers/letters) are a rationed garnish,
+  not a default: only add one where the ART DIRECTOR PLAN explicitly calls for
+  it, at 4-7% opacity maximum, placed in genuinely empty canvas — NEVER under
+  or touching body text, stats, cards, or other content.
 - Extract numbers from the content and showcase them BIG (stat treatment),
   don't bury them in sentences.
 - Asymmetry beats symmetry: vary card sizes, offset images, use 40/60 or
-  30/70 splits, bleed one element off-canvas.
+  30/70 splits, bleed one image or shape off-canvas (never text).
 - Every card/panel gets breathing room: consistent internal padding (>=24px),
   consistent corner radii, aligned baselines across siblings.
+
+LEGIBILITY IS NON-NEGOTIABLE — violating any of these fails the slide:
+- Text elements must never overlap each other or sit under decorative
+  elements. Size every text box to its content (height >= number of lines x
+  font_size x line_height) before placing neighbors.
+- ALL text stays fully inside the safe zone: x >= 48, y >= 48,
+  x + width <= 1232, y + height <= 672. Only images and shapes may bleed
+  off-canvas. Page-number captions sit at y <= 672 too.
+- Stat labels and card captions are 3-7 words and wrap to at most 2 lines —
+  if a label needs 3 lines, shorten the wording, don't shrink the font.
+- Text placed over a photo requires a dark overlay (opacity 45-70) or a solid
+  color panel behind it — never raw text on a busy image.
 """
 
 # Composition archetypes — rotated so adjacent slides never share a skeleton.
 _ARCHETYPES_BY_LAYOUT = {
     "title_only": [
         ("full-bleed hero", "Full-canvas image (filter + dark overlay 55-70) or deep color field, "
-         "kicker caption with letterspacing, 58-72pt title on the left 55%, thin accent rule, "
-         "one-line subtitle. Optional oversized ghost glyph bleeding off the right edge."),
-        ("split hero", "Left 45%: color panel with kicker, huge title, accent bar. Right 55%: "
-         "full-height image with filter and palette-tinted overlay. One floating accent shape "
-         "crossing the seam."),
+         "kicker chip (outlined rect + letterspaced caption), 58-72pt title on the left 55%, thin "
+         "accent rule, one-line subtitle. Layer it rich: corner frame ticks (4 thin shapes), a "
+         "bottom stat ribbon (3 number+label pairs with thin vertical dividers), a second scrim "
+         "panel for depth, page caption. Optional ghost glyph at 4-6% opacity in empty canvas "
+         "only. Target 16-20 elements."),
+        ("split hero", "Left 45%: color panel with kicker chip, huge title, accent bar, 2-3 "
+         "supporting caption rows with tiny icon badges. Right 55%: full-height image with "
+         "filter and palette-tinted overlay plus a floating stat chip card overlapping the seam. "
+         "Corner ticks or a thin frame inset on the panel side. Target 16-20 elements."),
     ],
     "bullets": [
         ("stat band", "Pull the numbers out of the bullets and set them 60-90pt across a band of "
@@ -228,9 +257,10 @@ _ARCHETYPES_BY_LAYOUT = {
         ("icon card grid", "Each bullet becomes a card: rounded panel (subtle tint or stroke), "
          "ellipse icon badge, 4-6 word heading, short caption. Asymmetric grid — one card 1.5x "
          "wider or taller than the others."),
-        ("numbered editorial", "Vertical list with oversized ghost numbers 01/02/03 (90-140pt, "
-         "8-12% opacity) behind each row, left accent bars, heading + caption per row. Right "
-         "30-40%: full-height image with overlay."),
+        ("numbered editorial", "Vertical list with refined number labels 01/02/03 (24-32pt, "
+         "accent color, full opacity) in the left gutter of each row — clear of the row text — "
+         "left accent bars, heading + caption per row. Right 30-40%: full-height image with "
+         "overlay."),
         ("split feature", "Left 40%: full-height image, palette overlay, one stat or kicker "
          "overlaid on it. Right 60%: bullets as compact mini-cards with icon badges, staggered "
          "x-offsets so rows don't form a flat list."),
@@ -249,8 +279,8 @@ _ARCHETYPES_BY_LAYOUT = {
     ],
     "timeline": [
         ("horizontal timeline", "Baseline connector line with circle year-badges, alternating "
-         "labels above/below, accent dot for the 'now' marker, years set 26-34pt bold. Ghost "
-         "year (e.g. 2026) oversized in the background."),
+         "labels above/below, accent dot for the 'now' marker, years set 26-34pt bold. "
+         "Optional ghost year at 4-6% opacity in an empty corner, clear of all labels."),
         ("vertical milestones", "Left rail with connector line and numbered/year badges, each "
          "milestone a row card to the right; final milestone highlighted with filled accent "
          "panel."),
@@ -261,8 +291,10 @@ _ARCHETYPES_BY_LAYOUT = {
     ],
     "quote": [
         ("editorial quote", "Oversized quotation-mark glyph (180-260pt text or shapes, low "
-         "opacity), 34-44pt italic quote centered-left, attribution caption with accent rule, "
-         "muted full-bleed image or deep color field behind."),
+         "opacity), 34-44pt italic quote centered-left on a layered offset panel, attribution "
+         "caption with accent rule and a small ellipse initial-badge, muted full-bleed image or "
+         "deep color field behind. Flank with thin frame rules, corner ticks, and 2-3 small "
+         "proof chips (metric + label) along the bottom. Target 15-18 elements."),
     ],
     "table": [
         ("framed table", "Table inside a framed panel with a heading row above it, one key-number "
@@ -310,8 +342,13 @@ def _palette_is_auto(config: dict) -> bool:
     return str((config or {}).get("palette") or "auto").strip().lower() == "auto"
 
 
+def _font_is_auto(config: dict) -> bool:
+    """True when no font is pinned — 'auto', empty, or omitted."""
+    return str((config or {}).get("fontFamily") or "auto").strip().lower() == "auto"
+
+
 async def _design_plan(client, model, system, outline, archetypes, usage_acc,
-                       palette_auto: bool = False) -> dict:
+                       palette_auto: bool = False, font_auto: bool = False) -> dict:
     """One deck-wide Opus thinking call → {slide_number: plan_text}."""
     listing = "\n".join(
         f"  slide {i}: [{s.get('layout','bullets')}] archetype \"{a[0]}\" — {s.get('title','')}"
@@ -322,9 +359,17 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
         palette_clause = (
             "PALETTE IS AUTO: before planning slides, pick the single palette from "
             "11-visual-design-guide.md that best fits this topic's mood and subject "
-            "(do not default to Midnight Executive). Name it and its exact hexes in "
+            "(do not default to Midnight Executive; for premium/executive topics "
+            "follow the premium-palette guidance). Name it and its exact hexes in "
             "deck_notes; every slide plan must use only that palette so the deck "
             "stays consistent.\n\n"
+        )
+    if font_auto:
+        palette_clause += (
+            "FONT IS AUTO: pick the heading/body pairing from the Typography "
+            "Pairings table in 11-visual-design-guide.md that matches this topic's "
+            "mood (PowerPoint-safe fonts only). Name both fonts in deck_notes; "
+            "every slide must use that pairing.\n\n"
         )
     msg = (
         "You are the ART DIRECTOR for this deck. Think through the entire deck's "
@@ -336,8 +381,18 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
         "geometry, the oversized typographic anchor (what + size range), background and "
         "accent hexes from the palette, image subject + filter/overlay treatment (or "
         "'no image'), and the one distinctive touch that separates it from its neighbors. "
+        "Plan every slide — title, quote, and closer included — dense enough to land "
+        "18-30 layered elements (hard floor 14): enumerate the decorative layers "
+        "(kicker chips, accent rules, corner ticks, offset panels, icon badges, stat "
+        "ribbons, dividers), not just the content blocks. "
         "Decide deck-wide rhythm deliberately: where imagery clusters, where pure "
-        "typography breathes, how dark/light alternation lands."
+        "typography breathes, how dark/light alternation lands.\n\n"
+        "Premium reads as RESTRAINT: generous whitespace, disciplined alignment, "
+        "high contrast, one metallic or sharp accent used sparingly. Ration ghost "
+        "glyphs to at most 2 slides in the whole deck (title and/or closer) — most "
+        "slides get none. Keep stat labels to 3-7 words. Every text element must "
+        "land fully inside the 48px safe zone (x 48-1232, y 48-672); plan layouts "
+        "so nothing forces text to the canvas edge."
     )
     resp = await client.messages.create(
         model=model,
@@ -406,6 +461,14 @@ def build_slidegen_system(outline: dict, config: dict) -> list:
         )
     else:
         palette_line = f"{config.get('palette')} (from 11-visual-design-guide.md)"
+    if _font_is_auto(config):
+        font_line = (
+            "AUTO — the ART DIRECTOR PLAN names the heading/body pairing; follow "
+            "it exactly. If no plan is given, pick the Typography Pairings entry "
+            "from 11-visual-design-guide.md that fits the topic (never Google fonts)"
+        )
+    else:
+        font_line = f"{config.get('fontFamily')} (do NOT use Google fonts)"
     brief = f"""DESIGN BRIEF (identical for every slide of this deck):
   Deck title: {outline.get('title', 'Untitled')}
   Deck subtitle: {outline.get('subtitle', '')}
@@ -413,7 +476,7 @@ def build_slidegen_system(outline: dict, config: dict) -> list:
   Density: {config.get('density', 'Standard')}
   Audience: {config.get('audience', 'Executive Leadership')}
   Tone: {config.get('tone', '') or 'none specified'}
-  Font Family: {config.get('fontFamily', 'Trebuchet MS')} (do NOT use Google fonts)
+  Font Family: {font_line}
   Font Size: {config.get('fontSize', 'Medium')}
   Palette: {palette_line}
   Image Source: {config.get('imageSource', 'pexels')}
@@ -478,19 +541,20 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
         }
     else:
         kwargs = {"tool_choice": {"type": "tool", "name": "emit_slide"}}
+    feedback = ""
     for attempt in range(1 + RETRIES_PER_SLIDE):
         try:
+            content = _slide_user_message(outline, slide_entry, slide_number,
+                                          archetype, neighbors, plan_text)
+            if feedback:
+                content += f"\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED: {feedback}"
             resp = await client.messages.create(
                 model=model,
                 max_tokens=MAX_TOKENS_PER_SLIDE,
                 system=system,
                 # both tools always — identical prefix = cache hits across calls
                 tools=[SLIDE_TOOL, DESIGN_PLAN_TOOL],
-                messages=[{
-                    "role": "user",
-                    "content": _slide_user_message(outline, slide_entry, slide_number,
-                                                   archetype, neighbors, plan_text),
-                }],
+                messages=[{"role": "user", "content": content}],
                 **kwargs,
             )
             usage_acc.append(resp.usage)
@@ -500,6 +564,17 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
             # fail fast here so a broken spec retries while we're still parallel
             expand_slide_spec(spec, deck_title="probe", slide_number=slide_number,
                               deck_id="probe", timestamp=0)
+            n_elements = len(spec.get("elements", []))
+            if n_elements < MIN_ELEMENTS_PER_SLIDE and attempt < RETRIES_PER_SLIDE:
+                feedback = (
+                    f"only {n_elements} elements — the premium floor is "
+                    f"{MIN_ELEMENTS_PER_SLIDE}. Keep the same composition but layer "
+                    f"it richer: kicker chip, accent rules, corner ticks, offset "
+                    f"panels, icon badges, stat ribbon, dividers, page caption."
+                )
+                print(f"  [slide-{slide_number}] attempt {attempt + 1} too thin "
+                      f"({n_elements} elements) — regenerating richer")
+                continue
             return spec
         except Exception as e:
             last_err = e
@@ -549,7 +624,8 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
               f"(effort={THINKING_EFFORT}; warming executor cache in parallel)")
         plans, _ = await asyncio.gather(
             _design_plan(client, model, system, outline, archetypes, usage_acc,
-                         palette_auto=_palette_is_auto(config)),
+                         palette_auto=_palette_is_auto(config),
+                         font_auto=_font_is_auto(config)),
             _warm_executor_cache(client, model, system, usage_acc),
         )
         t_warm = time.time() - t0

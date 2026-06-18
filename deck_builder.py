@@ -469,6 +469,12 @@ class Slide:
         changelog: dict | None = None,
     ) -> str:
         element_id, z_index = self.deck._next_element("table")
+        # Models sometimes emit rich cell dicts ({"text": ..., "bold": ...});
+        # the editor renders plain strings keyed "row-col" — keep only the text.
+        cells = {
+            k: (v.get("text", "") if isinstance(v, dict) else v)
+            for k, v in (cells or {}).items()
+        }
         content_record = {
             "id": element_id,
             "slideId": self.id,

@@ -291,14 +291,55 @@ async def run_deck_pipeline(outline_id: str) -> None:
     #   depending on SLIDEGEN_MODE (fast | premium | director).
     # DECK_ENGINE=agent — legacy parallel batch agents writing build.py.
     engine = os.environ.get("DECK_ENGINE", "slidegen").lower()
+    early: dict = {}  # set by the slidegen deliver-then-patch callback
 
     try:
         await storage.set_outline_generating(outline_id)
 
         if engine == "slidegen":
             from core.slidegen import generate_deck_per_slide
+
+            def _summary_from(s, passed, qa_state=None):
+                out = {
+                    "duration_seconds": s["total_seconds"],
+                    "cost_usd":         s["cost_usd"],
+                    "tokens": {
+                        "input":       s["input_tokens"],
+                        "output":      s["output_tokens"],
+                        "cache_write": s["cache_write"],
+                        "cache_read":  s["cache_read"],
+                    },
+                    "validation_passed": passed,
+                    "engine":            f"slidegen/{s['mode']}",
+                }
+                if qa_state is not None:
+                    out["qa"] = qa_state
+                return out
+
+            # Deliver-then-patch: when visual QA is on, store the deck and
+            # mark the outline done the moment generation finishes — the
+            # frontend sees the deck ~60-80s earlier; the QA loop then
+            # improves failing slides and we patch the deck doc afterwards.
+            async def _deliver_early(deck0, stats0):
+                if os.environ.get("SLIDEGEN_VISUAL_QA", "0") != "1":
+                    return
+                passed0, _, _ = run_validation(run_dir / "merged_deck.json")
+                summary0 = _summary_from(stats0, passed0, qa_state="running")
+                early["deck_id"] = await storage.create_deck_doc(
+                    outline_id=outline_id,
+                    presentation_id=presentation_id,
+                    user_id=user_id,
+                    deck=deck0,
+                    summary=summary0,
+                )
+                await storage.save_deck_to_outline(
+                    outline_id, deck0, summary0, deck_id=early["deck_id"])
+                print(f"[pipeline] deck delivered early decks/{early['deck_id']} "
+                      f"— visual QA patching in background")
+
             deck, stats = await generate_deck_per_slide(
                 outline_data, pipeline_config, run_dir=run_dir,
+                on_deck_ready=_deliver_early,
             )
             merged = run_dir / "merged_deck.json"
             passed, problems, warnings = run_validation(merged)
@@ -307,18 +348,9 @@ async def run_deck_pipeline(outline_id: str) -> None:
                 print(f"    ! {w}")
             for p in problems:
                 print(f"    - {p}")
-            mongo_summary = {
-                "duration_seconds": stats["total_seconds"],
-                "cost_usd":         stats["cost_usd"],
-                "tokens": {
-                    "input":       stats["input_tokens"],
-                    "output":      stats["output_tokens"],
-                    "cache_write": stats["cache_write"],
-                    "cache_read":  stats["cache_read"],
-                },
-                "validation_passed": passed,
-                "engine":            f"slidegen/{stats['mode']}",
-            }
+            mongo_summary = _summary_from(
+                stats, passed,
+                qa_state="done" if "visual_qa" in stats else None)
         else:
             await generate_from_outline(
                 run_id=run_id,
@@ -344,15 +376,23 @@ async def run_deck_pipeline(outline_id: str) -> None:
                 "engine":            "agent",
             }
 
-        deck_id = await storage.create_deck_doc(
-            outline_id=outline_id,
-            presentation_id=presentation_id,
-            user_id=user_id,
-            deck=deck,
-            summary=mongo_summary,
-        )
-        await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
-        print(f"[pipeline] done  decks/{deck_id}  outlines/{outline_id} status=done")
+        if early.get("deck_id"):
+            deck_id = early["deck_id"]
+            await storage.update_deck_doc(deck_id, deck, mongo_summary)
+            await storage.save_deck_to_outline(outline_id, deck, mongo_summary,
+                                               deck_id=deck_id)
+            print(f"[pipeline] QA patch applied  decks/{deck_id}  "
+                  f"outlines/{outline_id} status=done")
+        else:
+            deck_id = await storage.create_deck_doc(
+                outline_id=outline_id,
+                presentation_id=presentation_id,
+                user_id=user_id,
+                deck=deck,
+                summary=mongo_summary,
+            )
+            await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
+            print(f"[pipeline] done  decks/{deck_id}  outlines/{outline_id} status=done")
 
         # Generate .pptx (non-fatal — a failure here doesn't break the pipeline)
         try:

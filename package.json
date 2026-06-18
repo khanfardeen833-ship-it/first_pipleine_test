@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "adm-zip": "^0.5.17",
+    "echarts": "^6.1.0",
     "lucide-static": "^0.523.0",
     "pptxgenjs": "^3.12.0"
   }

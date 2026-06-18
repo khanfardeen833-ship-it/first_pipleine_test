@@ -387,6 +387,22 @@ async def create_deck_doc(
     return str(oid)
 
 
+async def update_deck_doc(deck_id: str, deck: dict, summary: dict) -> None:
+    """Replace a deck document's slides + summary in place — used by the
+    deliver-then-patch flow: the deck is stored the moment generation
+    finishes, then visual QA improves slides and this patches them in."""
+    from bson import ObjectId
+    db = _get_db()
+    await db.decks.update_one(
+        {"_id": ObjectId(deck_id)},
+        {"$set": {
+            "slides":    _build_slides(deck),
+            "summary":   summary,
+            "updatedAt": _now(),
+        }},
+    )
+
+
 async def get_deck(deck_id: str) -> dict | None:
     """Fetch a deck document by its _id."""
     from bson import ObjectId

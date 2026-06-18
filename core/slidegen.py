@@ -16,6 +16,7 @@ Flow:
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 import os
@@ -144,6 +145,11 @@ def expand_slide_spec(
         kind = el.pop("kind", None)
         if kind not in _KIND_DISPATCH:
             raise ValueError(f"unknown element kind: {kind!r}")
+        # Image src is supplied by resolve_image_queries() from the element's
+        # `query` after specs land; tolerate its absence here (e.g. the
+        # per-slide validation probe runs before resolution).
+        if kind == "image" and not el.get("src"):
+            el["src"] = ""
         method, positional = _KIND_DISPATCH[kind]
         args = [el.pop(field) for field in positional]
         kwargs = {k: v for k, v in el.items() if k in _ALLOWED[kind]}
@@ -179,9 +185,12 @@ SPEC FORMAT:
     shape: shape_type, x, y, width, height, fill, stroke, stroke_width,
            opacity, rotation
     icon:  icon_name, x, y, size, color, opacity, rotation
-    image: src, x, y, width, height, is_background, border_radius, opacity,
+    image: query, x, y, width, height, is_background, border_radius, opacity,
            rotation, object_fit, filter, blur, scale_x, scale_y, shadow,
            border, overlay, crop_ratio, crop_rect, focus_point
+           (use "query": 2-5 literal subject words, e.g. "bubble tea pastel
+           cups" — a real Pexels search fills in src. NEVER hand-write a
+           photos/{id} URL: a guessed id returns a random, irrelevant photo.)
     chart: chart_type, chart_config, x, y, width, height
     table: cells, x, y, col_widths, row_heights, font_size, table_color,
            table_bg, table_bold, table_italic, table_align
@@ -276,6 +285,14 @@ _ARCHETYPES_BY_LAYOUT = {
         ("three cards", "Three equal cards with top icon badges, bold 3-5 word headings, "
          "captions, and a footer accent bar each; middle card elevated (taller or tinted) for "
          "rhythm."),
+        ("offset trio", "Three columns at staggered vertical offsets (a descending or zig-zag "
+         "step), alternating filled vs. outlined treatment, a thin through-line or connecting "
+         "dots linking their badge centers, oversized 01/02/03 numerals behind each heading. "
+         "One column carries a photo strip or tint for weight."),
+        ("ribbon trio", "A continuous top ribbon/band spanning all three columns carries the "
+         "kicker; below it three blocks each lead with a 60-90pt number or icon medallion, a "
+         "3-5 word heading and 2-line caption, divided by thin vertical rules. Optional bottom "
+         "photo strip bleeding off-canvas for energy."),
     ],
     "timeline": [
         ("horizontal timeline", "Baseline connector line with circle year-badges, alternating "
@@ -288,6 +305,12 @@ _ARCHETYPES_BY_LAYOUT = {
     "chart": [
         ("chart + callout", "Chart on one side (55-65% width), headline insight as a big-stat "
          "callout card beside it, supporting points as small icon rows under the callout."),
+        ("hero chart", "Chart is the hero — 70-80% width, set on a subtle tinted plot panel with "
+         "a clear title; a horizontal ribbon of 2-3 stat callouts (number + 2-line caption + thin "
+         "dividers) runs along the top or bottom. Minimal side text; let the data dominate."),
+        ("split data story", "Left half: the chart over a tinted panel. Right half: a stacked "
+         "narrative — the single bold takeaway line (28-36pt) on top, then 3 insight rows with "
+         "icon badges and short captions. A vertical accent rule splits the two halves."),
     ],
     "quote": [
         ("editorial quote", "Oversized quotation-mark glyph (180-260pt text or shapes, low "
@@ -295,10 +318,24 @@ _ARCHETYPES_BY_LAYOUT = {
          "caption with accent rule and a small ellipse initial-badge, muted full-bleed image or "
          "deep color field behind. Flank with thin frame rules, corner ticks, and 2-3 small "
          "proof chips (metric + label) along the bottom. Target 15-18 elements."),
+        ("centered statement", "No image — a huge centered 40-56pt statement on a deep color "
+         "field, with generous breathing room. Tiny letterspaced attribution below a short accent "
+         "rule. Minimal flanking marks (a pair of corner ticks or one low-opacity glyph). "
+         "Confidence through restraint and scale."),
+        ("portrait quote", "Left 40%: full-height portrait/subject image with a palette-tinted "
+         "overlay and a small initial-badge. Right 60%: the quote (30-40pt) on a layered offset "
+         "panel, attribution with accent rule, and 2 small proof chips. A floating quotation mark "
+         "overlaps the image seam."),
     ],
     "table": [
         ("framed table", "Table inside a framed panel with a heading row above it, one key-number "
          "callout chip beside/above the table, accent header treatment."),
+        ("comparison matrix", "Table as a comparison grid: accent-filled header row, zebra row "
+         "tints for scanability, and ONE highlighted winning column or row (stronger accent tint "
+         "+ a small badge/checkmark) so the recommendation pops. Row-label column slightly wider."),
+        ("scorecard grid", "Table read as a scorecard: each data cell pairs its value with a tiny "
+         "icon, rating dot, or tier chip; bold accent header band; a floating key-number callout "
+         "chip overlapping a top corner of the frame. Generous cell padding."),
     ],
 }
 
@@ -337,6 +374,64 @@ DESIGN_PLAN_TOOL = {
 }
 
 
+_NOTES_RE = None  # compiled lazily (re imported below)
+
+
+def _parse_partial_plan(buf: str) -> tuple[str | None, dict[int, str]]:
+    """Parse a PARTIAL emit_design_plan tool-input JSON string.
+    Returns (deck_notes or None, {slide_number: plan}) for the slide entries
+    that are already complete in the buffer — used to launch slide executors
+    while the art director is still writing the rest of the plan."""
+    import re
+    global _NOTES_RE
+    if _NOTES_RE is None:
+        _NOTES_RE = re.compile(r'"deck_notes"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+    notes = None
+    m = _NOTES_RE.search(buf)
+    if m:
+        try:
+            notes = json.loads('"' + m.group(1) + '"')
+        except ValueError:
+            notes = None
+
+    entries: dict[int, str] = {}
+    i = buf.find('"slides"')
+    i = buf.find("[", i) if i != -1 else -1
+    if i == -1:
+        return notes, entries
+    depth, start, in_str, esc_next = 0, None, False, False
+    for j in range(i + 1, len(buf)):
+        c = buf[j]
+        if in_str:
+            if esc_next:
+                esc_next = False
+            elif c == "\\":
+                esc_next = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            if depth == 0:
+                start = j
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    obj = json.loads(buf[start:j + 1])
+                    if "slide_number" in obj and "plan" in obj:
+                        entries[int(obj["slide_number"])] = obj["plan"]
+                except (ValueError, TypeError):
+                    pass
+                start = None
+        elif c == "]" and depth == 0:
+            break
+    return notes, entries
+
+
 def _palette_is_auto(config: dict) -> bool:
     """True when no palette is pinned — 'auto', empty, or omitted."""
     return str((config or {}).get("palette") or "auto").strip().lower() == "auto"
@@ -348,8 +443,16 @@ def _font_is_auto(config: dict) -> bool:
 
 
 async def _design_plan(client, model, system, outline, archetypes, usage_acc,
-                       palette_auto: bool = False, font_auto: bool = False) -> dict:
-    """One deck-wide Opus thinking call → {slide_number: plan_text}."""
+                       palette_auto: bool = False, font_auto: bool = False,
+                       on_entry=None) -> dict:
+    """One deck-wide Opus thinking call → {slide_number: plan_text}.
+
+    With on_entry set, the response is STREAMED and on_entry(slide_number,
+    plan_text) fires as soon as that slide's plan entry is complete in the
+    partial JSON — so slide executors start while the plan is still being
+    written. Entries only stream once deck_notes is known (it precedes the
+    slides array in the schema); otherwise everything launches at the end.
+    Same model/prompt/output either way — pure pipelining."""
     listing = "\n".join(
         f"  slide {i}: [{s.get('layout','bullets')}] archetype \"{a[0]}\" — {s.get('title','')}"
         for i, (s, a) in enumerate(zip(outline.get("slides", []), archetypes), start=1)
@@ -357,12 +460,21 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
     palette_clause = ""
     if palette_auto:
         palette_clause = (
-            "PALETTE IS AUTO: before planning slides, pick the single palette from "
-            "11-visual-design-guide.md that best fits this topic's mood and subject "
-            "(do not default to Midnight Executive; for premium/executive topics "
-            "follow the premium-palette guidance). Name it and its exact hexes in "
-            "deck_notes; every slide plan must use only that palette so the deck "
-            "stays consistent.\n\n"
+            "PALETTE IS AUTO: before planning, choose the ONE palette from the 14 in "
+            "11-visual-design-guide.md whose MOOD matches this topic, then commit to it "
+            "deck-wide. Match by subject, not by habit:\n"
+            "  - Playful / consumer / food & drink / lifestyle / kids / social / events "
+            "→ bright & saturated: Coral Energy, Cherry Bold, Teal Trust, Ocean Gradient.\n"
+            "  - Wellness / nature / heritage / craft / education → Forest & Moss, "
+            "Sage Calm, Warm Terracotta, Berry & Cream.\n"
+            "  - Tech / product / SaaS / data → Graphite & Electric, Midnight Executive, "
+            "Ocean Gradient.\n"
+            "  - Premium / finance / luxury / executive / consulting → Noir & Champagne, "
+            "Deep Navy & Gold, Charcoal Minimal, Ivory Editorial.\n"
+            "Do NOT default to a dark or premium palette for a light, playful, or "
+            "everyday topic — a fun subject in Noir & Champagne reads wrong. Reserve "
+            "near-black/metallic palettes for genuinely premium subjects. Name the chosen "
+            "palette and its exact hexes in deck_notes; every slide uses only it.\n\n"
         )
     if font_auto:
         palette_clause += (
@@ -394,7 +506,7 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
         "land fully inside the 48px safe zone (x 48-1232, y 48-672); plan layouts "
         "so nothing forces text to the canvas edge."
     )
-    resp = await client.messages.create(
+    request = dict(
         model=model,
         max_tokens=MAX_TOKENS_PLAN,
         thinking={"type": "adaptive"},
@@ -406,6 +518,24 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
         tool_choice={"type": "auto"},
         messages=[{"role": "user", "content": msg}],
     )
+    if on_entry is not None:
+        buf, streamed = "", set()
+        async with client.messages.stream(**request) as stream:
+            async for event in stream:
+                if (getattr(event, "type", "") == "content_block_delta"
+                        and getattr(event.delta, "type", "") == "input_json_delta"):
+                    buf += event.delta.partial_json
+                    notes_p, entries = _parse_partial_plan(buf)
+                    if notes_p is None:
+                        continue
+                    for n, plan_text in entries.items():
+                        if n not in streamed:
+                            streamed.add(n)
+                            on_entry(n, f"DECK-WIDE SYSTEM: {notes_p}\n\n"
+                                        f"THIS SLIDE: {plan_text}")
+            resp = await stream.get_final_message()
+    else:
+        resp = await client.messages.create(**request)
     usage_acc.append(resp.usage)
     plan = next((b.input for b in resp.content if b.type == "tool_use"), None)
     if plan is None:
@@ -418,6 +548,28 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
             text = f"DECK-WIDE SYSTEM: {notes}\n\nTHIS SLIDE: {text}"
         out[int(entry["slide_number"])] = text
     return out
+
+
+async def warm_static_prefix() -> None:
+    """1-token call that caches the outline-INDEPENDENT prefix (tools + skills
+    block). Fire this concurrently with outline generation: by the time the
+    art director call starts, its ~60k-token skills prefix is a cache read
+    instead of a fresh prefill — saves ~5s on the plan call. Non-fatal."""
+    try:
+        client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+        system = [{
+            "type": "text",
+            "text": _skills_block() + "\n\n---\n\n" + _SPEC_INSTRUCTIONS,
+            "cache_control": {"type": "ephemeral"},
+        }]
+        await client.messages.create(
+            model=model, max_tokens=1, system=system,
+            tools=[SLIDE_TOOL, DESIGN_PLAN_TOOL],
+            messages=[{"role": "user", "content": "warm"}],
+        )
+    except Exception as e:
+        print(f"  [slidegen] static prefix warm failed (non-fatal): {e}")
 
 
 async def _warm_executor_cache(client, model, system, usage_acc) -> None:
@@ -436,16 +588,26 @@ async def _warm_executor_cache(client, model, system, usage_acc) -> None:
     usage_acc.append(resp.usage)
 
 
-def assign_archetypes(slides: list) -> list:
+def _deck_seed(outline: dict) -> int:
+    """Stable per-deck offset derived from the title, so two decks pick different
+    archetypes for layouts that appear only once (chart/table/quote). Stable hash
+    (not Python's salted hash) → same topic reproduces, different topics vary."""
+    title = (outline or {}).get("title", "") or ""
+    return int(hashlib.sha1(title.encode("utf-8")).hexdigest(), 16)
+
+
+def assign_archetypes(slides: list, seed: int = 0) -> list:
     """Pick a composition archetype per slide, rotating within each layout type
-    so adjacent slides (and repeated layouts) never share a skeleton."""
+    so adjacent slides (and repeated layouts) never share a skeleton. `seed`
+    shifts each layout's starting point so single-occurrence layouts differ
+    across decks instead of always landing on the first archetype."""
     counters: dict[str, int] = {}
     out = []
     for s in slides:
         layout = s.get("layout", "bullets")
         pool = _ARCHETYPES_BY_LAYOUT.get(layout, _ARCHETYPES_BY_LAYOUT["bullets"])
         i = counters.get(layout, 0)
-        out.append(pool[i % len(pool)])
+        out.append(pool[(i + seed) % len(pool)])
         counters[layout] = i + 1
     return out
 
@@ -525,12 +687,49 @@ def _slide_user_message(outline: dict, slide_entry: dict, slide_number: int,
     )
 
 
+_SAFE_CLAMP_MAX = 40  # px — nudge small violations only; bigger = intentional
+
+
+def _clamp_text_safe_zone(merged: dict) -> int:
+    """Deterministically nudge text elements fully inside the 48px safe zone
+    (48..1232 x, 48..672 y) when they overshoot by <= _SAFE_CLAMP_MAX px —
+    the classic offender is the page-number caption a few px below the line.
+    Larger violations are left alone (and get caught by validation/QA).
+    Returns the number of elements moved. Geometry lives in the changelog."""
+    fixed = 0
+    for s in merged["files"]["changelog"]["slides"].values():
+        for eid, rec in s.get("elements", {}).items():
+            if not eid.startswith("text"):
+                continue
+            pos = rec.get("position") or {}
+            x, y = pos.get("x", 0), pos.get("y", 0)
+            w, h = rec.get("width", 0), rec.get("height", 0)
+            nx, ny = x, y
+            if x + w > 1232 and (x + w) - 1232 <= _SAFE_CLAMP_MAX:
+                nx = 1232 - w
+            if nx < 48 and 48 - nx <= _SAFE_CLAMP_MAX:
+                nx = 48
+            if nx + w > 1232:           # can't satisfy both edges — leave it
+                nx = x
+            if y + h > 672 and (y + h) - 672 <= _SAFE_CLAMP_MAX:
+                ny = 672 - h
+            if ny < 48 and 48 - ny <= _SAFE_CLAMP_MAX:
+                ny = 48
+            if ny + h > 672:
+                ny = y
+            if (nx, ny) != (x, y):
+                pos["x"], pos["y"] = nx, ny
+                fixed += 1
+    return fixed
+
+
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
 async def _generate_one(client, model, system, outline, slide_entry, slide_number,
                         usage_acc: list, archetype: tuple, neighbors: str,
-                        plan_text: str | None = None, think: bool = True) -> dict:
+                        plan_text: str | None = None, think: bool = True,
+                        qa_feedback: str | None = None) -> dict:
     last_err = None
     if think:
         # adaptive thinking needs tool_choice auto; forced tool would disable it
@@ -546,6 +745,8 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
         try:
             content = _slide_user_message(outline, slide_entry, slide_number,
                                           archetype, neighbors, plan_text)
+            if qa_feedback:
+                content += f"\n\nVISUAL QA FEEDBACK on the previous version of this slide:\n{qa_feedback}"
             if feedback:
                 content += f"\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED: {feedback}"
             resp = await client.messages.create(
@@ -584,10 +785,14 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
 
 async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                                   run_dir: Path | None = None,
-                                  mode: str | None = None) -> tuple[dict, dict]:
+                                  mode: str | None = None,
+                                  on_deck_ready=None) -> tuple[dict, dict]:
     """
     Generate a full deck with one parallel API call per slide.
     mode: fast | premium | director (default: env SLIDEGEN_MODE or 'director').
+    on_deck_ready: optional async callback(merged, stats) invoked the moment
+    the first merged deck is written — BEFORE the visual QA loop — so callers
+    can deliver the deck immediately and patch the QA-improved slides after.
     Returns (merged_deck_dict, stats).
     """
     config = config or {}
@@ -603,7 +808,7 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
 
     system = build_slidegen_system(outline, config)
     usage_acc: list = []
-    archetypes = assign_archetypes(slides)
+    archetypes = assign_archetypes(slides, seed=_deck_seed(outline))
     think = mode == "premium"
 
     def neighbors_of(i):  # 1-based slide number
@@ -618,24 +823,48 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     plans: dict = {}
 
     if mode == "director":
-        # Deck-wide thinking call + executor-cache warmer run concurrently;
-        # the warmer finishes in seconds, so the executors all hit cache.
+        # The plan call STREAMS: each slide's executor launches the moment its
+        # plan entry is complete, overlapping slide generation with the rest
+        # of the planning. Executors gate on the cache warmer so every one of
+        # them hits the prompt cache instead of racing to write it.
         print(f"  [slidegen] art director planning {len(slides)} slides "
-              f"(effort={THINKING_EFFORT}; warming executor cache in parallel)")
-        plans, _ = await asyncio.gather(
-            _design_plan(client, model, system, outline, archetypes, usage_acc,
-                         palette_auto=_palette_is_auto(config),
-                         font_auto=_font_is_auto(config)),
-            _warm_executor_cache(client, model, system, usage_acc),
-        )
+              f"(effort={THINKING_EFFORT}; streaming — slides start as their "
+              f"plan entries land)")
+        warm_task = asyncio.create_task(
+            _warm_executor_cache(client, model, system, usage_acc))
+        slide_tasks: dict[int, asyncio.Task] = {}
+
+        async def _run_slide(i: int, plan_text: str | None):
+            await warm_task  # cache entry must exist before executors fan out
+            return await _generate_one(client, model, system, outline,
+                                       slides[i - 1], i, usage_acc,
+                                       archetypes[i - 1], neighbors_of(i),
+                                       plan_text=plan_text, think=False)
+
+        def _launch(i: int, plan_text: str | None):
+            if 1 <= i <= len(slides) and i not in slide_tasks:
+                print(f"  [slidegen] plan for slide {i} ready "
+                      f"({time.time() - t0:.1f}s) — executing")
+                slide_tasks[i] = asyncio.create_task(_run_slide(i, plan_text))
+
+        try:
+            plans = await _design_plan(client, model, system, outline,
+                                       archetypes, usage_acc,
+                                       palette_auto=_palette_is_auto(config),
+                                       font_auto=_font_is_auto(config),
+                                       on_entry=_launch)
+        except BaseException:
+            for t in slide_tasks.values():
+                t.cancel()
+            warm_task.cancel()
+            raise
         t_warm = time.time() - t0
-        print(f"  [slidegen] plan ready in {t_warm:.1f}s — "
-              f"executing {len(slides)} slides in parallel")
+        print(f"  [slidegen] plan complete in {t_warm:.1f}s — "
+              f"{len(slide_tasks)}/{len(slides)} slides started early")
+        for i in range(1, len(slides) + 1):
+            _launch(i, plans.get(i))  # anything the stream didn't catch
         specs = list(await asyncio.gather(*[
-            _generate_one(client, model, system, outline, entry, i, usage_acc,
-                          archetypes[i-1], neighbors_of(i),
-                          plan_text=plans.get(i), think=False)
-            for i, entry in enumerate(slides, start=1)
+            slide_tasks[i] for i in range(1, len(slides) + 1)
         ]))
     else:
         # Warm the cache with slide 1, then fan out the rest in parallel.
@@ -654,6 +883,20 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         specs = [first_spec] + list(rest)
     t_gen = time.time() - t0
 
+    # Resolve image-element `query` strings into real Pexels URLs BEFORE download
+    # (the model can't guess valid photo IDs, so a fabricated src is a random
+    # photo). Must finish before prefetch so the cache pulls the resolved URLs.
+    from core.pexels import resolve_image_queries
+    await resolve_image_queries(specs)
+
+    # Download every referenced image into run_dir/images/ while we expand and
+    # merge — the QA renderer and the PPTX exporter both reuse the local copies.
+    prefetch_task = None
+    if run_dir is not None:
+        from core.image_cache import prefetch_images
+        prefetch_task = asyncio.create_task(
+            prefetch_images(specs, Path(run_dir)))
+
     # Deterministic expansion + merge (existing merger, via temp files)
     now = int(time.time() * 1000)
     deck_id = f"deck-{now}"
@@ -669,6 +912,9 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         part_paths.append(p)
     merged = merge_presentations(part_paths)
     merged["presentation"]["description"] = outline.get("subtitle", "")
+    clamped = _clamp_text_safe_zone(merged)
+    if clamped:
+        print(f"  [slidegen] auto-clamped {clamped} text element(s) into the safe zone")
     t_total = time.time() - t0
 
     stats = {
@@ -695,9 +941,107 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "merged_deck.json").write_text(
             json.dumps(merged, indent=2), encoding="utf-8")
-        (run_dir / "slidegen_stats.json").write_text(
-            json.dumps(stats, indent=2), encoding="utf-8")
         if plans:
             (run_dir / "design_plan.json").write_text(
                 json.dumps(plans, indent=2), encoding="utf-8")
+        if prefetch_task is not None:
+            await prefetch_task  # manifest must exist before QA render / export
+
+        # Deliver-then-patch: hand the deck to the caller NOW; the QA loop
+        # below improves slides in place and the caller patches afterwards.
+        if on_deck_ready is not None:
+            try:
+                await on_deck_ready(merged, stats)
+            except Exception as e:
+                print(f"  [slidegen] on_deck_ready callback failed (non-fatal): {e}")
+
+        # ── Visual QA loop: screenshot + vision judge, regenerate failures ──
+        if os.environ.get("SLIDEGEN_VISUAL_QA", "0") == "1":
+            from core.image_cache import prefetch_images
+            from core.visual_qa import run_visual_qa, format_feedback, print_report
+
+            t_qa = time.time()
+            report = await run_visual_qa(run_dir, outline=outline, plans=plans)
+            print_report(report)
+            failing = [r for r in report["slides"] if not r["pass"]]
+            qa_stats = {
+                "initial_scores": {r["slide_number"]: r["score"]
+                                   for r in report["slides"]},
+                "regenerated": [], "reverted": [],
+                "judge_tokens": dict(report["tokens"]),
+            }
+
+            if failing:
+                nums = [r["slide_number"] for r in failing]
+                print(f"  [visual-qa] regenerating slide(s) {nums} with feedback")
+                old_specs = {n: specs[n - 1] for n in nums}
+                new_specs = await asyncio.gather(*[
+                    _generate_one(client, model, system, outline,
+                                  slides[r["slide_number"] - 1],
+                                  r["slide_number"], usage_acc,
+                                  archetypes[r["slide_number"] - 1],
+                                  neighbors_of(r["slide_number"]),
+                                  plan_text=plans.get(r["slide_number"]),
+                                  think=False,
+                                  qa_feedback=format_feedback(r))
+                    for r in failing
+                ])
+
+                def _remerge():
+                    m = merge_presentations(part_paths)
+                    m["presentation"]["description"] = outline.get("subtitle", "")
+                    _clamp_text_safe_zone(m)
+                    (run_dir / "merged_deck.json").write_text(
+                        json.dumps(m, indent=2), encoding="utf-8")
+                    return m
+
+                def _write_part(n, spec):
+                    specs[n - 1] = spec
+                    part = expand_slide_spec(spec, deck_title=title,
+                                             slide_number=n,
+                                             deck_id=deck_id, timestamp=now)
+                    part_paths[n - 1].write_text(json.dumps(part),
+                                                 encoding="utf-8")
+
+                await resolve_image_queries(new_specs)  # query -> real Pexels URL
+                for r, spec in zip(failing, new_specs):
+                    _write_part(r["slide_number"], spec)
+                    qa_stats["regenerated"].append(r["slide_number"])
+                await prefetch_images(new_specs, run_dir)  # new image URLs
+                merged = _remerge()
+
+                # re-judge only the regenerated slides; revert any that got worse
+                report2 = await run_visual_qa(run_dir, outline=outline,
+                                              plans=plans,
+                                              only_slides=set(nums))
+                new_by_n = {r["slide_number"]: r for r in report2["slides"]}
+                old_by_n = {r["slide_number"]: r for r in failing}
+                reverted = False
+                for n in nums:
+                    if new_by_n[n]["score"] < old_by_n[n]["score"]:
+                        print(f"  [visual-qa] slide {n} got worse "
+                              f"({old_by_n[n]['score']} -> {new_by_n[n]['score']}) "
+                              f"— keeping original")
+                        _write_part(n, old_specs[n])
+                        qa_stats["reverted"].append(n)
+                        reverted = True
+                if reverted:
+                    merged = _remerge()
+                qa_stats["final_scores"] = {
+                    n: (old_by_n[n]["score"] if n in qa_stats["reverted"]
+                        else new_by_n[n]["score"])
+                    for n in nums
+                }
+                qa_stats["judge_tokens"]["input"] += report2["tokens"]["input"]
+                qa_stats["judge_tokens"]["output"] += report2["tokens"]["output"]
+
+            qa_stats["seconds"] = round(time.time() - t_qa, 1)
+            stats["visual_qa"] = qa_stats
+            stats["total_seconds"] = round(time.time() - t0, 1)
+            print(f"  [visual-qa] done in {qa_stats['seconds']}s — "
+                  f"regenerated {len(qa_stats['regenerated'])}, "
+                  f"reverted {len(qa_stats['reverted'])}")
+
+        (run_dir / "slidegen_stats.json").write_text(
+            json.dumps(stats, indent=2), encoding="utf-8")
     return merged, stats

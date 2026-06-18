@@ -24,6 +24,11 @@ python scripts/run_premium_test.py
 # Validate a generated deck (structure, ID sync, zIndex uniqueness)
 python validate.py workspace/<run-id>/merged_deck.json
 
+# Visual QA: screenshot every slide (Playwright) + vision-judge it (core/visual_qa.py)
+python core/visual_qa.py workspace/<run-id>/merged_deck.json
+# ...or enable the full judge→regenerate loop inside slidegen:
+SLIDEGEN_VISUAL_QA=1 python scripts/run_topic.py "topic" --slides 10
+
 # Render a deck to a standalone preview.html (mimics the editor, incl. features PPTX export lacks)
 python scripts/render_html_preview.py workspace/<run-id>/merged_deck.json
 
@@ -41,6 +46,8 @@ There is no requirements.txt. Python deps in use: `anthropic`, `claude-agent-sdk
 - `ANTHROPIC_OUTLINE_MODEL` — outline model (default `claude-haiku-4-5`)
 - `DECK_ENGINE` — `slidegen` (default) or `agent` (legacy)
 - `SLIDEGEN_MODE` — `fast` | `premium` | `director` (default `director`)
+- `SLIDEGEN_VISUAL_QA=1` — screenshot + vision-judge each slide after merge, regenerate failures with the judge's feedback (needs `pip install playwright` + `playwright install chromium`)
+- `ANTHROPIC_QA_MODEL` — vision judge model (default `claude-sonnet-4-6`)
 - `MONGODB_URI` — required for server/worker paths only
 - `AZURE_OPENAI_*` / `OPENAI_API_KEY` — only for the prompt enhancer (`enhance.py`)
 - `PRESENTATION_BATCH_SIZE` — slides per batch, legacy agent engine only (default 8)

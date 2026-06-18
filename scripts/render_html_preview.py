@@ -18,6 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LUCIDE_DIR = ROOT / "node_modules" / "lucide-static" / "icons"
+# Vendored ECharts — inlined into the preview so charts paint offline (headless
+# QA screenshots have no reliable network for a CDN). Falls back to the CDN if
+# the package isn't installed (`npm install echarts`).
+ECHARTS_MIN_JS = ROOT / "node_modules" / "echarts" / "dist" / "echarts.min.js"
 
 # CSS approximations of the editor's 16 named filters
 FILTER_CSS = {
@@ -146,10 +150,12 @@ def render_text(el, content):
     )
     if st.get("backgroundColor") not in (None, "", "transparent"):
         css += f"background:{st['backgroundColor']};"
+    opacity = st.get("opacity", 1)
+    op_css = f"opacity:{opacity};" if opacity != 1 else ""
     return (
         f'<div style="position:absolute;left:{x}px;top:{y}px;width:{el["width"]}px;'
         f'min-height:{el["height"]}px;z-index:{el.get("zIndex", 0)};white-space:pre-wrap;'
-        f"{rot}{css}\">{esc(content)}</div>"
+        f"{op_css}{rot}{css}\">{esc(content)}</div>"
     )
 
 
@@ -184,7 +190,7 @@ def render_icon(el, name):
     )
 
 
-def render_chart(el, rec, idx):
+def render_chart(el, rec, idx, slide_bg="#ffffff"):
     x, y = el["position"]["x"], el["position"]["y"]
     if rec.get("svgDataUrl"):
         return (f'<img src="{esc(rec["svgDataUrl"])}" style="position:absolute;left:{x}px;'
@@ -193,12 +199,29 @@ def render_chart(el, rec, idx):
     cfg = rec.get("chartConfig", {})
     ctype = el.get("chartType") or rec.get("chartType", "bar")
     div_id = f"chart-{idx}"
-    payload = json.dumps({"type": ctype, "config": cfg})
+    # Dark mode if the config says so, or if the chart sits on a dark slide. When
+    # dark, the JS forces a light text/axis color so titles & labels stay legible
+    # (the model often omits axis/title colors, leaving ECharts' near-black default).
+    cfg_bg = cfg.get("backgroundColor")
+    panel = cfg_bg if (cfg_bg and cfg_bg != "transparent") else slide_bg
+    is_dark = bool(cfg.get("isDarkMode")) or not _is_light_hex(panel)
+    text_color = cfg.get("textColor") or ("#F5F7FA" if is_dark else "#1c1917")
+    payload = json.dumps({"type": ctype, "config": cfg,
+                          "dark": is_dark, "textColor": text_color})
     return (
         f'<div id="{div_id}" data-chart=\'{payload.replace("&", "&amp;").replace(chr(39), "&#39;")}\' '
         f'style="position:absolute;left:{x}px;top:{y}px;width:{el["width"]}px;'
         f'height:{el["height"]}px;z-index:{el.get("zIndex", 0)}"></div>'
     )
+
+
+def _is_light_hex(h):
+    """Perceived-luminance test — pick dark/light table chrome for legibility."""
+    h = (h or "").lstrip("#")
+    if len(h) != 6:
+        return True
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 140
 
 
 def render_table(el, rec):
@@ -208,19 +231,43 @@ def render_table(el, rec):
         return ""
     rows = max(int(k.split("-")[0]) for k in cells) + 1
     cols = max(int(k.split("-")[1]) for k in cells) + 1
+
+    # Honor the deck's table styling (it carries dark-mode colors). Defaulting to
+    # black-on-white made light-on-dark tables render as invisible black text.
+    text_color = rec.get("tableColor") or "#1c1917"
+    bg_color = rec.get("tableBg") or "#ffffff"
+    font_size = rec.get("tableFontSize") or 18
+    col_widths = rec.get("colWidths") or []
+    row_heights = rec.get("rowHeights") or []
+    light_bg = _is_light_hex(bg_color)
+    border = "#d9dde3" if light_bg else "#3a3f4a"
+    header_fill = "#1c1917" if light_bg else "#3E7BFA"
+
+    def cell_text(v):
+        return v.get("text", "") if isinstance(v, dict) else (v or "")
+
     trs = []
     for r in range(rows):
+        is_header = r == 0
+        rh = f"height:{row_heights[r]}px;" if r < len(row_heights) else ""
+        fill = header_fill if is_header else bg_color
+        color = "#ffffff" if is_header else text_color
+        weight = "700" if is_header else "400"
         tds = "".join(
-            f'<td style="border:1px solid #ccc;padding:6px 10px">'
-            f'{esc(cells.get(f"{r}-{c}", ""))}</td>'
+            f'<td style="border:1px solid {border};padding:0 14px;{rh}'
+            f'background:{fill};color:{color};font-weight:{weight};'
+            f'vertical-align:middle">{esc(cell_text(cells.get(f"{r}-{c}", "")).strip())}</td>'
             for c in range(cols)
         )
-        trs.append(f"<tr>{tds}</tr>")
-    width = el.get("width") or sum(rec.get("colWidths") or []) or 600
+        trs.append(f'<tr>{tds}</tr>')
+
+    col_group = "".join(f'<col style="width:{w}px">' for w in col_widths)
+    width = el.get("width") or sum(col_widths) or 600
     return (
         f'<table style="position:absolute;left:{x}px;top:{y}px;width:{width}px;'
-        f'z-index:{el.get("zIndex", 0)};border-collapse:collapse;'
-        f'font:14px Trebuchet MS">{"".join(trs)}</table>'
+        f'z-index:{el.get("zIndex", 0)};border-collapse:collapse;table-layout:fixed;'
+        f'background:{bg_color};font-family:Trebuchet MS;font-size:{font_size}px">'
+        f'{col_group}{"".join(trs)}</table>'
     )
 
 
@@ -228,6 +275,15 @@ def main(json_path):
     deck = json.loads(Path(json_path).read_text(encoding="utf-8"))
     files = deck["files"]
     content, changelog = files["content"], files["changelog"]
+
+    # Local image cache (core/image_cache.py): rewrite remote srcs to the
+    # cached copies in images/ so previews/screenshots skip the network.
+    manifest_path = Path(json_path).parent / "images" / "manifest.json"
+    img_manifest = (json.loads(manifest_path.read_text(encoding="utf-8"))
+                    if manifest_path.exists() else {})
+
+    def local_src(src):
+        return f"images/{img_manifest[src]}" if src in img_manifest else src
 
     by_id = {}  # element id -> content record
     for coll in ("imageElements", "shapeElements", "chartElements",
@@ -243,10 +299,11 @@ def main(json_path):
         sid = s["id"]
         els = changelog["slides"].get(sid, {}).get("elements", {})
         parts = []
+        bg = s.get("backgroundColor", "#ffffff")
         for eid, el in sorted(els.items(), key=lambda kv: kv[1].get("zIndex", 0)):
             rec = by_id.get(eid, {})
             if eid.startswith("image"):
-                parts.append(render_image(el, rec.get("src", "")))
+                parts.append(render_image(el, local_src(rec.get("src", ""))))
             elif eid.startswith("text"):
                 parts.append(render_text(el, rec.get("content", "")))
             elif eid.startswith("shape"):
@@ -255,19 +312,23 @@ def main(json_path):
                 parts.append(render_icon(el, rec.get("iconName", "Circle")))
             elif eid.startswith("chart"):
                 chart_idx += 1
-                parts.append(render_chart(el, rec, chart_idx))
+                parts.append(render_chart(el, rec, chart_idx, slide_bg=bg))
             elif eid.startswith("table"):
                 parts.append(render_table(el, {**rec, **el}))
-        bg = s.get("backgroundColor", "#ffffff")
         slides_html.append(
             f'<div class="slide-label">{sid}</div>'
             f'<div class="slide" style="background:{bg}">{"".join(parts)}</div>'
         )
 
     title = deck.get("presentation", {}).get("title", "Deck Preview")
+    if ECHARTS_MIN_JS.exists():
+        echarts_tag = "<script>" + ECHARTS_MIN_JS.read_text(encoding="utf-8") + "</script>"
+    else:
+        echarts_tag = ('<script src="https://cdn.jsdelivr.net/npm/'
+                       'echarts@5/dist/echarts.min.js"></script>')
     out = f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{esc(title)} — preview</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+{echarts_tag}
 <style>
   body {{ background:#0e0f12; margin:0; padding:32px 0; font-family:Trebuchet MS; }}
   h1 {{ color:#e7e9ee; text-align:center; font-size:20px; }}
@@ -288,31 +349,66 @@ def main(json_path):
   window.addEventListener('resize', fit); fit();
 
   document.querySelectorAll('[data-chart]').forEach(function (div) {{
+    if (typeof echarts === 'undefined' || !div.clientWidth) return;
     var spec = JSON.parse(div.getAttribute('data-chart'));
-    var cfg = spec.config, series = [], labels = [];
-    (cfg.data || []).forEach(function (d) {{
-      labels = d.labels || labels;
-      var color = (cfg.customSeriesColors && cfg.customSeriesColors[String(series.length)])
-                  || (cfg.color && cfg.color[series.length]);
-      if (spec.type === 'pie' || spec.type === 'doughnut') {{
-        series.push({{ type:'pie',
-          radius: spec.type === 'doughnut' ? ['45%','70%'] : '70%',
-          data: d.labels.map(function (l, i) {{ return {{ name:l, value:d.values[i] }}; }}) }});
-      }} else {{
-        series.push({{ name:d.name, type: spec.type === 'line' ? 'line' : 'bar',
-          data:d.values, smooth:true,
-          itemStyle: color ? {{ color: color }} : undefined,
-          lineStyle: color ? {{ color: color }} : undefined }});
+    var cfg = spec.config || {{}}, opt;
+    if (cfg.series) {{
+      // Native ECharts option (current generator output: series + xAxis/yAxis).
+      // Use it directly — the legacy cfg.data transform below never populated
+      // it, which is why these charts rendered blank.
+      opt = cfg;
+      opt.animation = false;
+      if (!opt.grid) opt.grid = {{ left:50, right:20, top:20, bottom:30, containLabel:true }};
+    }} else {{
+      // Legacy simplified shape: {{ data:[{{name,values,labels}}], ... }}
+      var series = [], labels = [];
+      (cfg.data || []).forEach(function (d) {{
+        labels = d.labels || labels;
+        var color = (cfg.customSeriesColors && cfg.customSeriesColors[String(series.length)])
+                    || (cfg.color && cfg.color[series.length]);
+        if (spec.type === 'pie' || spec.type === 'doughnut') {{
+          series.push({{ type:'pie',
+            radius: spec.type === 'doughnut' ? ['45%','70%'] : '70%',
+            data: d.labels.map(function (l, i) {{ return {{ name:l, value:d.values[i] }}; }}) }});
+        }} else {{
+          series.push({{ name:d.name, type: spec.type === 'line' ? 'line' : 'bar',
+            data:d.values, smooth:true,
+            itemStyle: color ? {{ color: color }} : undefined,
+            lineStyle: color ? {{ color: color }} : undefined }});
+        }}
+      }});
+      opt = {{ animation:false,
+        title: cfg.showTitle ? {{ text:cfg.title, left:'center',
+          textStyle:{{ fontSize:16, fontFamily:'Trebuchet MS' }} }} : undefined,
+        grid: {{ left:50, right:20, top:cfg.showTitle ? 48 : 20, bottom:30, containLabel:true }},
+        series: series }};
+      if (spec.type !== 'pie' && spec.type !== 'doughnut') {{
+        opt.xAxis = {{ type:'category', data:labels }};
+        opt.yAxis = {{ type:'value' }};
       }}
-    }});
-    var opt = {{ animation:false,
-      title: cfg.showTitle ? {{ text:cfg.title, left:'center',
-        textStyle:{{ fontSize:16, fontFamily:'Trebuchet MS' }} }} : undefined,
-      grid: {{ left:50, right:20, top:cfg.showTitle ? 48 : 20, bottom:30 }},
-      series: series }};
-    if (spec.type !== 'pie' && spec.type !== 'doughnut') {{
-      opt.xAxis = {{ type:'category', data:labels }};
-      opt.yAxis = {{ type:'value' }};
+    }}
+    // Force legible text on dark backgrounds — the model often omits axis/title
+    // colors, so ECharts falls back to near-black, invisible on a dark slide.
+    if (spec.dark) {{
+      var tc = spec.textColor || '#F5F7FA';
+      var line = 'rgba(245,247,250,0.25)';
+      opt.textStyle = Object.assign({{ color: tc }}, opt.textStyle || {{}});
+      if (opt.title) {{
+        opt.title.textStyle = Object.assign({{ color: tc }}, opt.title.textStyle || {{}});
+      }}
+      if (opt.legend) {{
+        opt.legend.textStyle = Object.assign({{ color: tc }}, opt.legend.textStyle || {{}});
+      }}
+      ['xAxis', 'yAxis'].forEach(function (ax) {{
+        var arr = Array.isArray(opt[ax]) ? opt[ax] : (opt[ax] ? [opt[ax]] : []);
+        arr.forEach(function (a) {{
+          a.axisLabel = Object.assign({{ color: tc }}, a.axisLabel || {{}});
+          a.axisLine = a.axisLine || {{}};
+          a.axisLine.lineStyle = Object.assign({{ color: line }}, a.axisLine.lineStyle || {{}});
+          a.splitLine = a.splitLine || {{}};
+          a.splitLine.lineStyle = Object.assign({{ color: line }}, a.splitLine.lineStyle || {{}});
+        }});
+      }});
     }}
     echarts.init(div).setOption(opt);
   }});

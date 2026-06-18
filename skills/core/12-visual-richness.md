@@ -7,19 +7,19 @@ ensures decks look premium and tell stories through visuals, not just words.
 
 ## HARD RULE — Images Are Not Optional
 
-**You MUST call `slide.add_image(src=..., ...)` at least once every 2 slides.**
-- Use real Pexels JPEG URLs (format: `https://images.pexels.com/photos/{id}/pexels-photo-{id}.jpeg`)
+**You MUST add at least one image every 2 slides.**
+- Request photos with a **`query`** (2-5 literal subject words) — a real Pexels
+  search supplies the URL. NEVER hand-write a `photos/{id}` URL: a guessed id
+  returns a random, irrelevant photo (a dog, a cliff). See skill 04.
 - Add images as hero photos, side panels, or background half-bleed — NOT decorative filler
 - Slides with ONLY shapes and icons are **rejected** — add a photo
-
-**Minimum image quota: at least 1 `add_image()` call per deck batch.**
 
 ---
 
 ## Mandatory Visual Elements Per Slide
 
 **RULE: Every slide must have AT LEAST ONE of these:**
-1. Background image (using `slide.add_image()` with a Pexels URL)
+1. Background or anchor image (an image element with a `query`)
 2. Data visualization chart (bar, line, pie)
 3. Large hero graphic or infographic
 4. Grid of image cards or visual blocks
@@ -28,66 +28,47 @@ Text-only or icon-only slides are **forbidden**.
 
 ---
 
-## Background Images (via Pexels)
+## Background Images (via Pexels search)
 
-Use high-quality Pexels images as slide backgrounds or visual anchors.
+Use high-quality photos as slide backgrounds or visual anchors. Always describe
+the subject with a `query`; the pipeline resolves it to a real, relevant image.
 
 ### Pattern 1: Full Bleed Image + Text Overlay
 
 ```python
-# Add a full-width background image on the left
+# Full-height image on the left — query names the literal subject
 slide.add_image(
-    src="https://images.pexels.com/photos/3182812/pexels-photo-3182812.jpeg",
+    query="modern open-plan office team",
     x=0, y=0, width=640, height=720,
-    is_background=False,
     border_radius=0
 )
-
-# Add semi-transparent shape overlay for text readability
-slide.add_shape(
-    "rectangle",
-    x=0, y=0, width=640, height=720,
-    fill="#000000",
-    opacity=0.3
-)
-
-# Text on top of image
-slide.add_title(
-    "Your Headline",
-    x=32, y=300, width=576, height=200,
-    color="#ffffff"
-)
+# Semi-transparent overlay for text readability
+slide.add_shape("rectangle", x=0, y=0, width=640, height=720, fill="#000000", opacity=0.3)
+slide.add_title("Your Headline", x=32, y=300, width=576, height=200, color="#ffffff")
 ```
 
 ### Pattern 2: Image Card (Right Side Content)
 
 ```python
-# Large image as visual anchor (right side)
-slide.add_image(
-    src="https://images.pexels.com/photos/3962286/pexels-photo-3962286.jpeg",
-    x=672, y=48, width=560, height=360,
-    border_radius=12
-)
-
-# Text content on left (x=48-560)
+slide.add_image(query="data analytics dashboard screen",
+                x=672, y=48, width=560, height=360, border_radius=12)
 slide.add_title("AI Adoption Trends", x=48, y=48, width=560, height=80)
 slide.add_text("Enterprise leaders prioritize...", x=48, y=150, width=560, height=200, type="paragraph")
 ```
 
-### Pexels Query Examples:
+### Writing good queries
 
-```
-# For corporate/business topics:
-https://images.pexels.com/photos/3182812/pexels-photo-3182812.jpeg  (office/teamwork)
-https://images.pexels.com/photos/3962286/pexels-photo-3962286.jpeg  (data/analytics)
-https://images.pexels.com/photos/4195325/pexels-photo-4195325.jpeg  (technology/code)
-https://images.pexels.com/photos/3775517/pexels-photo-3775517.jpeg  (business meeting)
+Name the **literal subject**, not the abstract theme:
 
-# For finance/investor presentations:
-https://images.pexels.com/photos/3184423/pexels-photo-3184423.jpeg  (financial charts)
-https://images.pexels.com/photos/1308881/pexels-photo-1308881.jpeg  (growth/upward)
-https://images.pexels.com/photos/3532557/pexels-photo-3532557.jpeg  (innovation)
-```
+| Topic | ✅ good query | ❌ bad query |
+|-------|--------------|-------------|
+| Investor pitch | `warehouse robots automation` | `success` |
+| Coffee deck | `pour-over coffee close up` | `quality` |
+| Bubble tea | `bubble tea pastel cups` | `fun drinks` |
+| Finance | `stock market trading screen` | `growth` |
+
+Match the orientation to the element: a tall side panel → portrait subject;
+a wide hero → landscape subject (orientation is inferred from width/height).
 
 ---
 

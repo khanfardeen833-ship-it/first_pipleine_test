@@ -44,7 +44,36 @@ function fetchImageAsDataUri(url) {
 // ── Coordinate helpers ────────────────────────────────────────────────────────
 const px2in = (px) => Number((px / 96).toFixed(4));
 const px2pt = (px) => Math.round(px * 0.75);
-const hex   = (color) => (color || '#000000').replace(/^#/, '');
+// Normalize any CSS color the generator emits into the 6-digit RGB hex (no '#')
+// pptxgenjs requires. Handles #rgb, #rrggbb, rgb()/rgba() (alpha dropped — opacity
+// is carried separately via `transparency`). Anything unparseable → black.
+const hex = (color) => {
+  const s = String(color || '').trim();
+  const m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(s);
+  if (m) {
+    return [m[1], m[2], m[3]]
+      .map(n => Math.max(0, Math.min(255, Math.round(parseFloat(n)))).toString(16).padStart(2, '0'))
+      .join('');
+  }
+  const h = s.replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(h)) return h.split('').map(c => c + c).join('');   // #abc → aabbcc
+  if (/^[0-9a-f]{6}$/i.test(h)) return h;
+  return '000000';
+};
+// Alpha channel of an rgba()/hsla() color as 0..1 (1 if none) — folded into
+// pptxgenjs `transparency` so translucent captions keep their intended opacity.
+const alphaOf = (color) => {
+  const m = /^(?:rgba|hsla)\([^)]*,\s*([\d.]+)\s*\)$/i.exec(String(color || '').trim());
+  return m ? Math.max(0, Math.min(1, parseFloat(m[1]))) : 1;
+};
+// Perceived-luminance test on a 6-digit hex (no '#') — used to pick dark/light
+// table chrome so text stays legible on either background.
+const isLightHex = (h) => {
+  const m = /^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(h || '').replace(/^#/, ''));
+  if (!m) return true;
+  const [r, g, b] = [m[1], m[2], m[3]].map(x => parseInt(x, 16));
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 140;
+};
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
 const LUCIDE_DIR = path.join(__dirname, '..', 'node_modules', 'lucide-static', 'icons');
@@ -134,6 +163,10 @@ function renderText(slide, el, changelogData) {
   const color = style.color || '#1c1917';
   const textAlign = style.textAlign || 'left';
   const fontWeight = style.fontWeight || 400;
+  // Combine the style opacity with any alpha baked into an rgba() color string
+  // (e.g. translucent captions) so neither is silently dropped.
+  const opacity = (style.opacity ?? 1) * alphaOf(color);   // ghost glyphs live at 0.03-0.08
+  const letterSpacing = style.letterSpacing || 0;
 
   slide.addText(el.content || '', {
     x: px2in(pos.x),
@@ -143,8 +176,11 @@ function renderText(slide, el, changelogData) {
     fontSize: px2pt(fontSize),
     fontFace: fontFamily,
     color: hex(color),
+    transparency: opacity < 1 ? Math.round((1 - opacity) * 100) : undefined,
     align: textAlign === 'center' ? 'center' : textAlign === 'right' ? 'right' : 'left',
     bold: fontWeight >= 700,
+    italic: style.fontStyle === 'italic',
+    charSpacing: letterSpacing ? px2pt(letterSpacing) : undefined,
     margin: 0,
   });
 }
@@ -261,7 +297,44 @@ const CHART_TYPE_MAP = {
   scatter:  'scatter',
 };
 
-function renderChart(pptx, slide, el, changelogData) {
+// Normalize a chartConfig into pptxgenjs's [{ name, labels, values }] shape.
+// Handles both the NATIVE ECharts option the generator now emits
+// (series[].data + xAxis/yAxis.data) and the legacy [{name,labels,values}] form.
+function normalizeChartData(chartConfig, rawType) {
+  // Legacy simplified shape — already in the right form.
+  const legacy = chartConfig.data;
+  if (Array.isArray(legacy) && legacy.length && legacy[0]?.values && legacy[0]?.labels) {
+    return legacy.map(s => ({ name: s.name || 'Series', labels: s.labels, values: s.values }));
+  }
+
+  const series = Array.isArray(chartConfig.series) ? chartConfig.series : [];
+  if (!series.length) return [];
+
+  const isCircular = ['pie', 'doughnut', 'nightingale', 'rose'].includes(rawType);
+  if (isCircular) {
+    // ECharts pie data: [{ name, value }, ...] → one pptx series.
+    const pts = (series[0]?.data || []).filter(d => d && typeof d === 'object');
+    return [{
+      name:   series[0]?.name || 'Series',
+      labels: pts.map(d => String(d.name ?? '')),
+      values: pts.map(d => Number(d.value) || 0),
+    }];
+  }
+
+  // Cartesian (bar/line/area/scatter): categories live on the category axis.
+  const catAxis = (chartConfig.xAxis?.type === 'category') ? chartConfig.xAxis
+                : (chartConfig.yAxis?.type === 'category') ? chartConfig.yAxis
+                : chartConfig.xAxis;
+  const labels = (catAxis?.data || []).map(String);
+  return series.map((s, i) => ({
+    name:   s.name || `Series ${i + 1}`,
+    labels,
+    // ECharts bar/line data is a flat number array; tolerate [{value}] too.
+    values: (s.data || []).map(v => (v && typeof v === 'object') ? Number(v.value) || 0 : Number(v) || 0),
+  }));
+}
+
+function renderChart(pptx, slide, el, changelogData, slideBg) {
   const pos = changelogData?.position || { x: 0, y: 0 };
   const width = changelogData?.width || 560;
   const height = changelogData?.height || 360;
@@ -269,18 +342,23 @@ function renderChart(pptx, slide, el, changelogData) {
   const rawType = (el.chartType || 'bar').toLowerCase();
   const chartType = CHART_TYPE_MAP[rawType] || 'bar';
 
+  // Dark mode if the config says so, or the chart sits on a dark slide — then
+  // force light axis/title/legend text so labels stay legible (pptxgenjs
+  // defaults to dark text, invisible on a dark background).
+  const cfgBg = chartConfig.backgroundColor;
+  const panel = (cfgBg && cfgBg !== 'transparent') ? cfgBg : (slideBg || '#ffffff');
+  const isDark = !!chartConfig.isDarkMode || !isLightHex(hex(panel));
+  const textColor = isDark ? hex(chartConfig.textColor || '#F5F7FA') : '1c1917';
+  const axisLineColor = isDark ? '5A6172' : 'D9DDE3';
+
   try {
-    const rawData = chartConfig.data || [];
-    if (!rawData.length || !rawData[0].values || !rawData[0].labels) {
+    // pptxgenjs expects [{ name, labels, values }]. The generator emits NATIVE
+    // ECharts options (chartConfig.series[].data + chartConfig.xAxis.data), so
+    // normalize that here; fall back to the legacy [{name,labels,values}] shape.
+    const pptxData = normalizeChartData(chartConfig, rawType);
+    if (!pptxData.length || !pptxData[0].values?.length || !pptxData[0].labels?.length) {
       throw new Error('missing data/labels/values');
     }
-
-    // pptxgenjs expects { name, labels, values } — field must be 'values'
-    const pptxData = rawData.map(s => ({
-      name:   s.name || 'Series',
-      labels: s.labels,
-      values: s.values,
-    }));
 
     const chartColors = ['F96167', '2F3C7E', 'F9E795', '00B894', 'FDCB6E', '6C5CE7', 'E17055'];
 
@@ -292,8 +370,15 @@ function renderChart(pptx, slide, el, changelogData) {
       chartColors,
       showTitle:  chartConfig.showTitle !== false,
       title:      chartConfig.title || '',
-      showLegend: rawData.length > 1,
+      titleColor: textColor,
+      showLegend: pptxData.length > 1,
       legendPos:  'b',
+      legendColor: textColor,
+      catAxisLabelColor: textColor,
+      valAxisLabelColor: textColor,
+      catAxisLineColor: axisLineColor,
+      valAxisLineColor: axisLineColor,
+      dataLabelColor: textColor,
       dataLabelFontSize: 9,
     });
   } catch (err) {
@@ -310,7 +395,7 @@ function renderChart(pptx, slide, el, changelogData) {
       w: px2in(width - 32), h: px2in(40),
       fontSize: 12, bold: true, color: '1e3a5f',
     });
-    const series = (chartConfig.data || []);
+    const series = normalizeChartData(chartConfig, rawType);
     if (series[0]?.values?.length) {
       const vals = series[0].values.map((v, i) => `${series[0].labels?.[i] ?? i}: ${v}`).join('  ');
       slide.addText(vals, {
@@ -343,20 +428,54 @@ function renderTable(slide, el, changelogData) {
     const rowCount = Math.max(...rows, 0) + 1;
     const colCount = Math.max(...cols, 0) + 1;
 
+    // Honor the deck's table styling (it carries dark-mode colors). pptxgenjs
+    // defaults to black-on-white, which is invisible on a dark slide.
+    const hex = (v, fb) => (v ? String(v).replace('#', '') : fb);
+    const textColor = hex(el.tableColor, '1c1917');
+    const bgColor   = hex(el.tableBg, 'ffffff');
+    const fontSize  = el.tableFontSize || 18;
+    // Subtle row divider derived from the text color (low-opacity look via mid-gray).
+    const borderColor = isLightHex(bgColor) ? 'd9dde3' : '3a3f4a';
+    // Header row: invert toward the accent for separation from body rows.
+    const headerFill = isLightHex(bgColor) ? '1c1917' : '3E7BFA';
+    const headerText = 'ffffff';
+
     const tableData = [];
     for (let r = 0; r < rowCount; r++) {
+      const isHeader = r === 0;
       const row = [];
       for (let c = 0; c < colCount; c++) {
-        row.push(cells[`${r}-${c}`] || '');
+        const raw = cells[`${r}-${c}`];
+        const txt = (raw && typeof raw === 'object' ? raw.text : raw) || '';
+        row.push({
+          text: String(txt).trim(),
+          options: {
+            color: isHeader ? headerText : textColor,
+            fill:  { color: isHeader ? headerFill : bgColor },
+            bold:  isHeader,
+            align: 'left',
+            valign: 'middle',
+          },
+        });
       }
       tableData.push(row);
     }
 
+    const colW = (el.colWidths || []).map(px2in);
+    const rowH = (el.rowHeights || []).map(px2in);
     slide.addTable(tableData, {
       x: px2in(pos.x),
       y: px2in(pos.y),
       w: px2in(width),
-      h: px2in(height),
+      ...(colW.length === colCount ? { colW } : {}),
+      ...(rowH.length === rowCount ? { rowH } : {}),
+      fontFace: 'Arial',
+      fontSize,
+      color: textColor,
+      fill: { color: bgColor },
+      border: { type: 'solid', pt: 1, color: borderColor },
+      margin: [4, 8, 4, 8],
+      valign: 'middle',
     });
   } catch (err) {
     throw new Error(`Table render failed: ${err.message}`);
@@ -451,9 +570,33 @@ async function convertToPptx(deckData, outputPath) {
   const uniqueUrls = [...new Set(allImageUrls)];
 
   const imageCache = new Map();
-  if (uniqueUrls.length > 0) {
-    process.stderr.write(`  [images] fetching ${uniqueUrls.length} image(s)...\n`);
-    await Promise.all(uniqueUrls.map(async (url) => {
+
+  // Local image cache (core/image_cache.py): images/<hash>.<ext> next to the
+  // output .pptx (the run dir), mapped by manifest.json — reuse instead of
+  // re-downloading what the pipeline already fetched.
+  const MIME_BY_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                        webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' };
+  const imagesDir = path.join(path.dirname(path.resolve(outputPath)), 'images');
+  const manifestPath = path.join(imagesDir, 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    for (const url of uniqueUrls) {
+      const fname = manifest[url];
+      if (!fname) continue;
+      const fpath = path.join(imagesDir, fname);
+      if (!fs.existsSync(fpath)) continue;
+      const mime = MIME_BY_EXT[fname.split('.').pop()] || 'image/jpeg';
+      imageCache.set(url, `data:${mime};base64,${fs.readFileSync(fpath).toString('base64')}`);
+    }
+    if (imageCache.size > 0) {
+      process.stderr.write(`  [images] ${imageCache.size}/${uniqueUrls.length} from local cache\n`);
+    }
+  }
+
+  const missingUrls = uniqueUrls.filter(u => !imageCache.has(u));
+  if (missingUrls.length > 0) {
+    process.stderr.write(`  [images] fetching ${missingUrls.length} image(s)...\n`);
+    await Promise.all(missingUrls.map(async (url) => {
       try {
         const dataUri = await fetchImageAsDataUri(url);
         imageCache.set(url, dataUri);
@@ -480,7 +623,7 @@ async function convertToPptx(deckData, outputPath) {
         } else if (kind === 'image') {
           renderImage(pptx, slide, el, cl, imageCache);
         } else if (kind === 'chart') {
-          renderChart(pptx, slide, el, cl);
+          renderChart(pptx, slide, el, cl, slideData.backgroundColor);
         } else if (kind === 'table') {
           renderTable(slide, el, cl);
         }

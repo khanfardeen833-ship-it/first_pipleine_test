@@ -49,12 +49,22 @@ on every deck — match the mood and subject.
 | Graphite & Electric | `#1C1F26` | `#3E7BFA` | `#F5F7FA` |
 | Ivory Editorial | `#FFFFFF` | `#141414` | `#B4833E` |
 
-**Premium / executive topics** (luxury goods, real estate, finance, investor
-briefings, consulting): default to Noir & Champagne, Deep Navy & Gold,
-Charcoal Minimal, or Ivory Editorial. Near-black or pure-white fields with one
-metallic accent and hard contrast read expensive; muted dusty mid-tones
-(Berry & Cream, Warm Terracotta, Sage Calm) read crafty or dated for these
-topics — reserve them for artisanal, wellness, or heritage subjects.
+**Match the palette to the topic's MOOD — do not default to dark/premium.**
+A dark, metallic palette on a fun or everyday subject reads wrong. Pick from the
+bucket that fits:
+
+| Topic mood | Use these palettes |
+|------------|--------------------|
+| Playful / consumer / food & drink / lifestyle / kids / social / events | Coral Energy, Cherry Bold, Teal Trust, Ocean Gradient |
+| Wellness / nature / heritage / craft / education | Forest & Moss, Sage Calm, Warm Terracotta, Berry & Cream |
+| Tech / product / SaaS / data | Graphite & Electric, Midnight Executive, Ocean Gradient |
+| Premium / finance / luxury / executive / consulting | Noir & Champagne, Deep Navy & Gold, Charcoal Minimal, Ivory Editorial |
+
+Only premium/executive/luxury subjects should use the near-black or pure-white
+palettes (Noir & Champagne, Deep Navy & Gold, Charcoal Minimal, Ivory Editorial)
+— their metallic-accent, hard-contrast restraint reads expensive there but cold
+and off-tone on a playful subject. Bright topics should commit to a saturated
+palette with energy; one color still carries 60-70% of the weight.
 
 ---
 

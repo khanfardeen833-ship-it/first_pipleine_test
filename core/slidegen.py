@@ -258,6 +258,16 @@ _ARCHETYPES_BY_LAYOUT = {
          "supporting caption rows with tiny icon badges. Right 55%: full-height image with "
          "filter and palette-tinted overlay plus a floating stat chip card overlapping the seam. "
          "Corner ticks or a thin frame inset on the panel side. Target 16-20 elements."),
+        ("editorial masthead", "Magazine-cover feel: an ULTRA-large display title (72-92pt) set "
+         "low-left against generous whitespace, a top metadata rule (letterspaced section / date / "
+         "edition split by thin vertical dividers), a hairline baseline grid (2-3 thin rules), a "
+         "small corner monogram or logotype, and one restrained accent mark. Imagery optional and "
+         "muted. Premium through scale + emptiness. Target 14-18 elements."),
+        ("centered monolith", "Symmetric luxury: title perfectly centered on a deep color field, "
+         "a hairline rectangle framing the composition with inset margins, a small crest/monogram "
+         "or icon above the title, a letterspaced kicker below a short centered accent rule, and a "
+         "one-line subtitle. Corner ticks at all four corners. No photo — restraint reads "
+         "expensive. Target 14-17 elements."),
     ],
     "bullets": [
         ("stat band", "Pull the numbers out of the bullets and set them 60-90pt across a band of "
@@ -273,6 +283,14 @@ _ARCHETYPES_BY_LAYOUT = {
         ("split feature", "Left 40%: full-height image, palette overlay, one stat or kicker "
          "overlaid on it. Right 60%: bullets as compact mini-cards with icon badges, staggered "
          "x-offsets so rows don't form a flat list."),
+        ("editorial index", "Luxury report contents-page feel: each bullet is a full-width row "
+         "with a refined right-aligned number or short value, a hairline rule separating rows, "
+         "a small letterspaced label on the left and a one-line description, generous vertical "
+         "rhythm. A thin accent rule and section kicker up top. Whitespace-forward, no cards."),
+        ("feature + sidebar", "One DOMINANT insight on the left 58-62% — oversized number or "
+         "heading (60-90pt) with a short supporting line and an accent rule — beside a hairline-"
+         "ruled sidebar of 2-3 secondary points (small icon + label + caption). Strong hierarchy: "
+         "one hero idea, the rest deliberately quieter."),
     ],
     "two_column": [
         ("dual panel", "Two contrasting panels (one tinted/filled, one outlined or white) with "
@@ -280,6 +298,10 @@ _ARCHETYPES_BY_LAYOUT = {
          "divider or floating badge bridges the two."),
         ("versus split", "Hard 50/50 split with opposing background tones, oversized column "
          "labels, mirrored row layout, central circular 'VS'/theme badge overlapping the seam."),
+        ("indexed ledger", "Editorial two-column ledger: a heavy left label rail (an oversized "
+         "vertical word, large 01/02, or a tall accent bar) anchors the slide; the right side "
+         "stacks the two column contents as rows divided by hairline rules with letterspaced "
+         "headers and aligned values. Restrained, grid-locked, premium."),
     ],
     "three_column": [
         ("three cards", "Three equal cards with top icon badges, bold 3-5 word headings, "
@@ -301,6 +323,10 @@ _ARCHETYPES_BY_LAYOUT = {
         ("vertical milestones", "Left rail with connector line and numbered/year badges, each "
          "milestone a row card to the right; final milestone highlighted with filled accent "
          "panel."),
+        ("stepped ascent", "Milestones climb left-to-right on an ascending diagonal connector, "
+         "each node a year badge with the step elevated higher than the last (a rising-trajectory "
+         "feel), labels in alternating clean caption blocks, the final 'now' node enlarged with a "
+         "filled accent ring. Thin guide rules underneath for polish."),
     ],
     "chart": [
         ("chart + callout", "Chart on one side (55-65% width), headline insight as a big-stat "

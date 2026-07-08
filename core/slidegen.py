@@ -20,6 +20,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -158,14 +159,79 @@ def expand_slide_spec(
 
 
 # ---------------------------------------------------------------------------
-# Prompt assembly — large stable prefix + per-deck block, both cache-marked
+# Prompt assembly — compact slidegen skill pack + per-deck block, cache-marked
 # ---------------------------------------------------------------------------
+# Slidegen-only compact skill pack
+#
+# The slidegen model emits a compact spec (background + elements[] of
+# deck_builder kwargs); deck_builder.Deck deterministically builds the dual
+# content/changelog records and assigns zIndex. So instructions that teach
+# hand-assembly of the Bildory format are UNREACHABLE for this generator:
+#   - 00-index.md      : "read this first / read only what you need" routing —
+#                        inert here (all files are injected unconditionally)
+#   - 08-changelog-sync: deck_builder syncs the dual records automatically
+#   - 09-zindex-rules  : deck_builder assigns globally-unique zIndex
+#   - per-element "content record" / "changelog record" JSON dumps and
+#     make_*() helper functions — the model never writes these
+#
+# The shared files under skills/ are left byte-for-byte untouched (the legacy
+# `agent` engine in core/prompt.py still loads the full set via config.py).
+# This pack is a pure function of those files: every RETAINED instruction is
+# the original text verbatim; we only drop provably-unreachable sections/lines.
+# ---------------------------------------------------------------------------
+SLIDEGEN_CORE_SKILL_FILES = [
+    "01-envelope.md",
+    "10-design-rules.md",
+    "11-visual-design-guide.md",
+    "12-visual-richness.md",
+]  # excludes 08-changelog-sync, 09-zindex-rules (unreachable for slidegen)
+
+SLIDEGEN_ELEMENT_SKILL_FILES = ELEMENT_SKILL_FILES  # same 6, boilerplate stripped
+
+# h2 sections (## ...) whose content teaches hand-assembly of the raw format
+_DROP_SECTION_PREFIXES = ("content record", "changelog record", "helper function")
+
+# individual lines that are wholly about records/fields the model never emits
+_DROP_LINE_SUBSTRINGS = (
+    "must be globally unique",       # zIndex uniqueness cross-refs
+    "27 style field", "all 27",      # "all 27 style fields required" (contradicts omit-defaults)
+    "animation fields are duplicated",
+    "formattedcontent",
+    "updatedat",
+    "09-zindex-rules", "08-changelog-sync",
+)
+
+
+def _strip_legacy_boilerplate(md: str) -> str:
+    """Remove hand-assembly boilerplate from an element skill file. Retained
+    text is byte-identical to the source; only whole legacy sections and
+    unambiguously-legacy lines are dropped."""
+    out, skipping = [], False
+    for ln in md.splitlines():
+        stripped = ln.lstrip()
+        if stripped.startswith("## "):
+            title = stripped[3:].strip().lower()
+            skipping = any(title.startswith(p) for p in _DROP_SECTION_PREFIXES)
+            if skipping:
+                continue
+        if skipping:
+            continue
+        if any(sub in ln.lower() for sub in _DROP_LINE_SUBSTRINGS):
+            continue
+        out.append(ln)
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(out))          # tidy gaps
+    text = re.sub(r"(?:\n---\s*)+\n*\Z", "\n", text)           # trailing rules
+    return text.strip() + "\n"
+
+
 def _skills_block() -> str:
-    sections = ["### SKILLS INDEX\n" + SKILLS_INDEX.read_text(encoding="utf-8")]
-    for fname in CORE_SKILL_FILES:
+    """Compact slidegen skills prefix (see the compact-pack note above)."""
+    sections = []
+    for fname in SLIDEGEN_CORE_SKILL_FILES:
         sections.append(f"### {fname}\n" + (CORE_SKILLS / fname).read_text(encoding="utf-8"))
-    for fname in ELEMENT_SKILL_FILES:
-        sections.append(f"### {fname}\n" + (ELEM_SKILLS / fname).read_text(encoding="utf-8"))
+    for fname in SLIDEGEN_ELEMENT_SKILL_FILES:
+        raw = (ELEM_SKILLS / fname).read_text(encoding="utf-8")
+        sections.append(f"### {fname}\n" + _strip_legacy_boilerplate(raw))
     sections.append("### deck_builder parameter reference\n"
                     + DECK_BUILDER_API.read_text(encoding="utf-8"))
     return "\n\n---\n\n".join(sections)
@@ -201,6 +267,9 @@ RULES:
 - NEVER include a field whose value equals its documented default
   (see OMIT DEFAULTS reference). shadow/border/overlay/style are partial
   dicts merged over defaults.
+- All geometry and style values are plain NUMBERS, never CSS strings:
+  letter_spacing/letterSpacing, font_size, line_height, width, height, x, y,
+  opacity, rotation are numeric (e.g. letter_spacing: 2, NOT "2px").
 - Apply the DESIGN BRIEF below to every slide so the deck looks coherent.
 - Use the slide outline entry you are given as the content plan.
 - Think through the composition first, then call emit_slide exactly once.
@@ -769,6 +838,19 @@ _ADV_UPPER = 0.62       # avg glyph advance ÷ font size, letterspaced caps
 _ADV_MIXED = 0.52       # avg glyph advance ÷ font size, mixed case
 
 
+def _num(v, default: float = 0.0) -> float:
+    """Coerce a style value to a float. Tolerates CSS-ish strings ("2px",
+    "0.05em") by taking the leading number. Post-process robustness only —
+    the canonical style values are numeric (deck_builder defaults)."""
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        m = re.match(r"\s*(-?\d+(?:\.\d+)?)", v)
+        if m:
+            return float(m.group(1))
+    return default
+
+
 def _est_line_width(text: str, font_size: float, letter_spacing: float) -> float:
     """Rough one-line rendered width (px) for a proportional font. Deliberately
     a slight over-estimate so the fit guard errs toward no-wrap."""
@@ -801,9 +883,9 @@ def _fit_single_line_labels(merged: dict) -> int:
                 continue
             content, ttype = meta.get(eid, ("", ""))
             st = rec.get("style") or {}
-            fs = st.get("fontSize", 0) or 0
-            ls = st.get("letterSpacing", 0) or 0
-            lh = st.get("lineHeight", 1.3) or 1.3
+            fs = _num(st.get("fontSize", 0))
+            ls = _num(st.get("letterSpacing", 0))
+            lh = _num(st.get("lineHeight", 1.3), 1.3)
             w = rec.get("width", 0) or 0
             h = rec.get("height", 0) or 0
             # single-line label: a caption whose box is ~one line tall

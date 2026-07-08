@@ -714,6 +714,8 @@ def _slide_user_message(outline: dict, slide_entry: dict, slide_number: int,
 
 
 _SAFE_CLAMP_MAX = 40  # px — nudge small violations only; bigger = intentional
+_GHOST_MIN_FONT = 80  # px — decorative "ghost glyph" display text is this big+
+_GHOST_MAX_OPACITY = 0.15  # ghost glyphs are faint washes
 
 
 def _clamp_text_safe_zone(merged: dict) -> int:
@@ -721,7 +723,13 @@ def _clamp_text_safe_zone(merged: dict) -> int:
     (48..1232 x, 48..672 y) when they overshoot by <= _SAFE_CLAMP_MAX px —
     the classic offender is the page-number caption a few px below the line.
     Larger violations are left alone (and get caught by validation/QA).
-    Returns the number of elements moved. Geometry lives in the changelog."""
+
+    Ghost glyphs (huge, faint decorative display text) are an exception: an
+    off-canvas bleed reads as an accidental mid-glyph crop, so they get an
+    unbounded clamp budget and are pulled fully inside — unless the glyph is
+    larger than the safe zone itself, in which case it's a deliberate full-bleed
+    wash and is left alone. Returns the number of elements moved. Geometry lives
+    in the changelog."""
     fixed = 0
     for s in merged["files"]["changelog"]["slides"].values():
         for eid, rec in s.get("elements", {}).items():
@@ -730,16 +738,22 @@ def _clamp_text_safe_zone(merged: dict) -> int:
             pos = rec.get("position") or {}
             x, y = pos.get("x", 0), pos.get("y", 0)
             w, h = rec.get("width", 0), rec.get("height", 0)
+            st = rec.get("style") or {}
+            fs = st.get("fontSize", 0) or 0
+            op = rec.get("opacity", st.get("opacity", 1))
+            op = 1 if op is None else op
+            ghost = fs >= _GHOST_MIN_FONT and op <= _GHOST_MAX_OPACITY
+            budget = 10_000 if ghost else _SAFE_CLAMP_MAX
             nx, ny = x, y
-            if x + w > 1232 and (x + w) - 1232 <= _SAFE_CLAMP_MAX:
+            if x + w > 1232 and (x + w) - 1232 <= budget:
                 nx = 1232 - w
-            if nx < 48 and 48 - nx <= _SAFE_CLAMP_MAX:
+            if nx < 48 and 48 - nx <= budget:
                 nx = 48
             if nx + w > 1232:           # can't satisfy both edges — leave it
                 nx = x
-            if y + h > 672 and (y + h) - 672 <= _SAFE_CLAMP_MAX:
+            if y + h > 672 and (y + h) - 672 <= budget:
                 ny = 672 - h
-            if ny < 48 and 48 - ny <= _SAFE_CLAMP_MAX:
+            if ny < 48 and 48 - ny <= budget:
                 ny = 48
             if ny + h > 672:
                 ny = y
@@ -749,13 +763,291 @@ def _clamp_text_safe_zone(merged: dict) -> int:
     return fixed
 
 
+# --- single-line label fit (kicker chips / captions) -----------------------
+_LABEL_FONT_FLOOR = 9   # px — don't shrink caption text below this
+_ADV_UPPER = 0.62       # avg glyph advance ÷ font size, letterspaced caps
+_ADV_MIXED = 0.52       # avg glyph advance ÷ font size, mixed case
+
+
+def _est_line_width(text: str, font_size: float, letter_spacing: float) -> float:
+    """Rough one-line rendered width (px) for a proportional font. Deliberately
+    a slight over-estimate so the fit guard errs toward no-wrap."""
+    text = text or ""
+    n = len(text)
+    if n == 0:
+        return 0.0
+    upper = sum(1 for c in text if c.isupper() or not c.isalpha()) >= 0.7 * n
+    adv = font_size * (_ADV_UPPER if upper else _ADV_MIXED)
+    return n * adv + n * (letter_spacing or 0)
+
+
+def _fit_single_line_labels(merged: dict) -> int:
+    """Kicker chips / captions are single-line labels sitting on a small filled
+    rect. When the caption is wider than its box it wraps to a second line that
+    clips out the bottom of the chip (the classic 'TREND 01 — CLIMATE' bug).
+    Shrink the fontSize (keeping letterSpacing) until the text fits one line;
+    as a last resort drop letterSpacing. Floored at _LABEL_FONT_FLOOR so it
+    stays legible. Returns the number of elements adjusted."""
+    # element id -> (content string, semantic type) from the content file
+    meta = {}
+    for s in merged["files"]["content"].get("slides", []):
+        for te in s.get("textElements", []):
+            meta[te.get("id")] = (te.get("content") or "", te.get("type") or "")
+
+    fixed = 0
+    for s in merged["files"]["changelog"]["slides"].values():
+        for eid, rec in s.get("elements", {}).items():
+            if not eid.startswith("text"):
+                continue
+            content, ttype = meta.get(eid, ("", ""))
+            st = rec.get("style") or {}
+            fs = st.get("fontSize", 0) or 0
+            ls = st.get("letterSpacing", 0) or 0
+            lh = st.get("lineHeight", 1.3) or 1.3
+            w = rec.get("width", 0) or 0
+            h = rec.get("height", 0) or 0
+            # single-line label: a caption whose box is ~one line tall
+            if ttype != "caption" or not content or w <= 0 or fs <= 0:
+                continue
+            if h > fs * lh * 1.8:      # box is multi-line by design — leave it
+                continue
+            budget = w * 0.98
+            if _est_line_width(content, fs, ls) <= budget:
+                continue
+            nfs, nls = fs, ls
+            while nfs > _LABEL_FONT_FLOOR and _est_line_width(content, nfs, nls) > budget:
+                nfs -= 1
+            if _est_line_width(content, nfs, nls) > budget and nls > 0:
+                nls = 0             # last resort: give up the letterspacing
+            if (nfs, nls) != (fs, ls):
+                st["fontSize"], st["letterSpacing"] = nfs, nls
+                fixed += 1
+    return fixed
+
+
+# --- card-grid alignment ---------------------------------------------------
+import statistics as _stats
+
+_CARD_MIN_W, _CARD_MAX_W = 180, 620   # panel-sized rects (not chips or full-bleed bg)
+_CARD_MIN_H, _CARD_MAX_H = 110, 560
+_ALIGN_MAX_DY = 60                    # only correct modest top-stagger
+_GROW_MAX = 90                        # only grow a short card by this much
+
+
+def _cards_on_slide(els: dict) -> list:
+    """Rectangle shapes that look like content cards (not chips, rules, or
+    full-bleed backgrounds). Returns [eid, rec, x, y, w, h]."""
+    out = []
+    for eid, rec in els.items():
+        if not eid.startswith("shape") or rec.get("shapeType") != "rectangle":
+            continue
+        pos = rec.get("position") or {}
+        x, y = pos.get("x", 0), pos.get("y", 0)
+        w, h = rec.get("width", 0), rec.get("height", 0)
+        if not (_CARD_MIN_W <= w <= _CARD_MAX_W) or not (_CARD_MIN_H <= h <= _CARD_MAX_H):
+            continue
+        if x <= 14:                    # left rail / edge-anchored full-bleed
+            continue
+        out.append([eid, rec, x, y, w, h])
+    return out
+
+
+def _translate_card_content(els: dict, card_eid: str, card_ids: set,
+                            x: int, y: int, w: int, h: int, dy: int, moved: set):
+    """Move every element whose center sits inside the card's original rect by
+    dy (so a card's label/number/icon/accent travels with it). Skips other
+    cards and anything already moved this slide."""
+    for eid, rec in els.items():
+        if eid == card_eid or eid in card_ids or eid in moved:
+            continue
+        pos = rec.get("position") or {}
+        cx = pos.get("x", 0) + (rec.get("width", 0) / 2)
+        cy = pos.get("y", 0) + (rec.get("height", 0) / 2)
+        if x <= cx <= x + w and y <= cy <= y + h:
+            pos["y"] = pos.get("y", 0) + dy
+            moved.add(eid)
+
+
+def _align_card_grids(merged: dict) -> int:
+    """Sibling cards in a row should share a top edge and height. Generation
+    sometimes staggers their tops or leaves unequal heights, which reads as
+    misalignment (the #1 QA defect cluster). Detect rows of same-width cards
+    (vertical spans overlapping >=50%) and snap each to the row's median top +
+    max height, translating each card's overlaid content with it. Conservative:
+    only uniform-width rows, only modest stagger, only within the canvas."""
+    fixed = 0
+    for s in merged["files"]["changelog"]["slides"].values():
+        els = s.get("elements", {})
+        cards = _cards_on_slide(els)
+        if len(cards) < 2:
+            continue
+        card_ids = {c[0] for c in cards}
+        cards.sort(key=lambda c: c[3])               # by top y
+        rows: list[list] = []
+        for c in cards:
+            for row in rows:
+                r = row[0]
+                ov = min(c[3] + c[5], r[3] + r[5]) - max(c[3], r[3])
+                if ov > 0 and ov >= 0.5 * min(c[5], r[5]):
+                    row.append(c)
+                    break
+            else:
+                rows.append([c])
+        moved: set = set()
+        for row in rows:
+            if len(row) < 2:
+                continue
+            widths = [c[4] for c in row]
+            med_w = _stats.median(widths)
+            if med_w <= 0 or (max(widths) - min(widths)) > 0.25 * med_w:
+                continue                             # non-uniform → likely intentional
+            tops = [c[3] for c in row]
+            heights = [c[5] for c in row]
+            if max(tops) - min(tops) <= 4 and max(heights) - min(heights) <= 4:
+                continue                             # already aligned
+            target_top = round(_stats.median(tops))
+            target_h = max(heights)
+            for eid, rec, x, y, w, h in row:
+                pos = rec["position"]
+                dy = target_top - y
+                if dy != 0 and abs(dy) <= _ALIGN_MAX_DY and 0 <= target_top \
+                        and target_top + max(target_h, h) <= 712:
+                    _translate_card_content(els, eid, card_ids, x, y, w, h, dy, moved)
+                    pos["y"] = target_top
+                    y = target_top
+                    fixed += 1
+                if h < target_h and (target_h - h) <= _GROW_MAX and (y + target_h) <= 712:
+                    rec["height"] = target_h
+    return fixed
+
+
+# ---------------------------------------------------------------------------
+# Retry instrumentation (metrics only — never affects generation)
+# ---------------------------------------------------------------------------
+def _log_attempt(retry_log, phase, slide_number, attempt, *, outcome,
+                 reason, elements, usage, thin=False):
+    """Record one generation attempt for retry metrics.
+
+    Pure instrumentation: no-op when retry_log is None, and never alters the
+    caller's control flow. `outcome` is 'accepted' | 'retry' | 'error'.
+    """
+    if retry_log is None:
+        return
+
+    def _u(name):
+        return (getattr(usage, name, 0) or 0) if usage is not None else 0
+
+    retry_log.append({
+        "phase": phase,               # "generate" | "qa"
+        "slide": slide_number,
+        "attempt": attempt,           # 1-based
+        "outcome": outcome,
+        "reason": reason,             # "below_element_floor" | <exception str> | None
+        "elements": elements,         # element count the model returned (None on error)
+        "thin": thin,                 # accepted despite being below the floor (last attempt)
+        "input_tokens": _u("input_tokens"),
+        "output_tokens": _u("output_tokens"),
+        "cache_write": _u("cache_creation_input_tokens"),
+        "cache_read": _u("cache_read_input_tokens"),
+    })
+
+
+def _summarize_retries(retry_log: list) -> dict:
+    """Aggregate per-attempt records into deck-level retry metrics."""
+    def _agg(events):
+        by_slide: dict = {}
+        for e in events:
+            by_slide.setdefault(e["slide"], []).append(e)
+        first_try = retried_slides = retry_calls = thin_retries = error_retries = 0
+        wasted = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
+        per_slide = []
+        for n, evs in sorted(by_slide.items()):
+            evs.sort(key=lambda x: x["attempt"])
+            non_accepted = [e for e in evs if e["outcome"] != "accepted"]
+            accepted = next((e for e in evs if e["outcome"] == "accepted"), None)
+            retry_calls += len(non_accepted)
+            for e in non_accepted:
+                if e["reason"] == "below_element_floor":
+                    thin_retries += 1
+                else:
+                    error_retries += 1
+                wasted["input"] += e["input_tokens"]
+                wasted["output"] += e["output_tokens"]
+                wasted["cache_write"] += e["cache_write"]
+                wasted["cache_read"] += e["cache_read"]
+            if non_accepted:
+                retried_slides += 1
+            else:
+                first_try += 1
+            per_slide.append({
+                "slide": n,
+                "attempts": len(evs),
+                "retries": len(non_accepted),
+                "succeeded": accepted is not None,
+                "final_elements": accepted["elements"] if accepted else None,
+                "reasons": [e["reason"] for e in non_accepted],
+            })
+        # same Opus rates used for stats["cost_usd"]: in $5/M, out $25/M,
+        # 5m-cache write $6.25/M, read $0.5/M
+        extra_cost = round(
+            wasted["input"] * 5 / 1e6
+            + wasted["output"] * 25 / 1e6
+            + wasted["cache_write"] * 6.25 / 1e6
+            + wasted["cache_read"] * 0.5 / 1e6, 4)
+        return {
+            "slides": len(by_slide),
+            "accepted_first_try": first_try,
+            "slides_requiring_retries": retried_slides,
+            "total_retry_calls": retry_calls,
+            "thin_retries": thin_retries,
+            "error_retries": error_retries,
+            "wasted_tokens": wasted,
+            "extra_cost_usd": extra_cost,
+            "per_slide": per_slide,
+        }
+
+    gen = [e for e in retry_log if e["phase"] == "generate"]
+    qa = [e for e in retry_log if e["phase"] == "qa"]
+    out = {"generate": _agg(gen)}
+    if qa:
+        out["qa"] = _agg(qa)
+    return out
+
+
+def _print_retry_summary(summary: dict) -> None:
+    g = summary["generate"]
+    print("=" * 30)
+    print("Retry Summary")
+    print(f"Slides: {g['slides']}")
+    print(f"Slides accepted first try: {g['accepted_first_try']}")
+    print(f"Slides requiring retries: {g['slides_requiring_retries']}")
+    print(f"Total retry calls: {g['total_retry_calls']}")
+    print(f"  - below element floor: {g['thin_retries']}")
+    print(f"  - errors: {g['error_retries']}")
+    print(f"Extra API cost due to retries: ~${g['extra_cost_usd']:.4f} (estimated)")
+    for s in g["per_slide"]:
+        if s["retries"]:
+            reasons = ", ".join(str(r) for r in s["reasons"])
+            print(f"  slide {s['slide']}: {s['retries']} retr(y/ies) over "
+                  f"{s['attempts']} attempt(s), "
+                  f"{'accepted' if s['succeeded'] else 'FAILED'}, "
+                  f"final_elements={s['final_elements']}, reasons=[{reasons}]")
+    if "qa" in summary:
+        q = summary["qa"]
+        print(f"QA-phase regeneration retries: {q['total_retry_calls']} "
+              f"(extra ~${q['extra_cost_usd']:.4f})")
+    print("=" * 30)
+
+
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
 async def _generate_one(client, model, system, outline, slide_entry, slide_number,
                         usage_acc: list, archetype: tuple, neighbors: str,
                         plan_text: str | None = None, think: bool = True,
-                        qa_feedback: str | None = None) -> dict:
+                        qa_feedback: str | None = None,
+                        retry_log: list | None = None,
+                        phase: str = "generate") -> dict:
     last_err = None
     if think:
         # adaptive thinking needs tool_choice auto; forced tool would disable it
@@ -768,6 +1060,7 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
         kwargs = {"tool_choice": {"type": "tool", "name": "emit_slide"}}
     feedback = ""
     for attempt in range(1 + RETRIES_PER_SLIDE):
+        usage = None  # this attempt's token usage, for retry accounting
         try:
             content = _slide_user_message(outline, slide_entry, slide_number,
                                           archetype, neighbors, plan_text)
@@ -785,6 +1078,7 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
                 **kwargs,
             )
             usage_acc.append(resp.usage)
+            usage = resp.usage
             spec = next((b.input for b in resp.content if b.type == "tool_use"), None)
             if spec is None:
                 raise ValueError("model returned no emit_slide call")
@@ -801,11 +1095,21 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
                 )
                 print(f"  [slide-{slide_number}] attempt {attempt + 1} too thin "
                       f"({n_elements} elements) — regenerating richer")
+                _log_attempt(retry_log, phase, slide_number, attempt + 1,
+                             outcome="retry", reason="below_element_floor",
+                             elements=n_elements, usage=usage)
                 continue
+            _log_attempt(retry_log, phase, slide_number, attempt + 1,
+                         outcome="accepted", reason=None,
+                         elements=n_elements, usage=usage,
+                         thin=n_elements < MIN_ELEMENTS_PER_SLIDE)
             return spec
         except Exception as e:
             last_err = e
             print(f"  [slide-{slide_number}] attempt {attempt + 1} failed: {e}")
+            _log_attempt(retry_log, phase, slide_number, attempt + 1,
+                         outcome="error", reason=str(e)[:160],
+                         elements=None, usage=usage)
     raise RuntimeError(f"slide {slide_number} failed after retries: {last_err}")
 
 
@@ -834,6 +1138,7 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
 
     system = build_slidegen_system(outline, config)
     usage_acc: list = []
+    retry_log: list = []   # per-attempt retry metrics (instrumentation only)
     archetypes = assign_archetypes(slides, seed=_deck_seed(outline))
     think = mode == "premium"
 
@@ -865,7 +1170,8 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
             return await _generate_one(client, model, system, outline,
                                        slides[i - 1], i, usage_acc,
                                        archetypes[i - 1], neighbors_of(i),
-                                       plan_text=plan_text, think=False)
+                                       plan_text=plan_text, think=False,
+                                       retry_log=retry_log)
 
         def _launch(i: int, plan_text: str | None):
             if 1 <= i <= len(slides) and i not in slide_tasks:
@@ -897,13 +1203,15 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         print(f"  [slidegen] slide 1/{len(slides)} (cache warm-up, mode={mode})")
         first_spec = await _generate_one(client, model, system, outline,
                                          slides[0], 1, usage_acc,
-                                         archetypes[0], neighbors_of(1), think=think)
+                                         archetypes[0], neighbors_of(1), think=think,
+                                         retry_log=retry_log)
         t_warm = time.time() - t0
         print(f"  [slidegen] slides 2..{len(slides)} in parallel "
               f"(warm-up took {t_warm:.1f}s)")
         rest = await asyncio.gather(*[
             _generate_one(client, model, system, outline, entry, i, usage_acc,
-                          archetypes[i-1], neighbors_of(i), think=think)
+                          archetypes[i-1], neighbors_of(i), think=think,
+                          retry_log=retry_log)
             for i, entry in enumerate(slides[1:], start=2)
         ])
         specs = [first_spec] + list(rest)
@@ -938,6 +1246,12 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         part_paths.append(p)
     merged = merge_presentations(part_paths)
     merged["presentation"]["description"] = outline.get("subtitle", "")
+    fitted = _fit_single_line_labels(merged)
+    if fitted:
+        print(f"  [slidegen] shrank {fitted} caption/kicker label(s) to fit one line")
+    aligned = _align_card_grids(merged)
+    if aligned:
+        print(f"  [slidegen] aligned {aligned} card(s) into their row grid")
     clamped = _clamp_text_safe_zone(merged)
     if clamped:
         print(f"  [slidegen] auto-clamped {clamped} text element(s) into the safe zone")
@@ -1009,13 +1323,16 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                                   neighbors_of(r["slide_number"]),
                                   plan_text=plans.get(r["slide_number"]),
                                   think=False,
-                                  qa_feedback=format_feedback(r))
+                                  qa_feedback=format_feedback(r),
+                                  retry_log=retry_log, phase="qa")
                     for r in failing
                 ])
 
                 def _remerge():
                     m = merge_presentations(part_paths)
                     m["presentation"]["description"] = outline.get("subtitle", "")
+                    _fit_single_line_labels(m)
+                    _align_card_grids(m)
                     _clamp_text_safe_zone(m)
                     (run_dir / "merged_deck.json").write_text(
                         json.dumps(m, indent=2), encoding="utf-8")
@@ -1068,6 +1385,11 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                   f"regenerated {len(qa_stats['regenerated'])}, "
                   f"reverted {len(qa_stats['reverted'])}")
 
+        stats["retries"] = _summarize_retries(retry_log)
+        _print_retry_summary(stats["retries"])
         (run_dir / "slidegen_stats.json").write_text(
             json.dumps(stats, indent=2), encoding="utf-8")
+    else:
+        stats["retries"] = _summarize_retries(retry_log)
+        _print_retry_summary(stats["retries"])
     return merged, stats

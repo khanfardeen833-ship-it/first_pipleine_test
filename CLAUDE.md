@@ -9,8 +9,12 @@ An AI presentation-generation pipeline: a prompt goes in, a "Bildory" editor dec
 ## Commands
 
 ```bash
-# Full CLI pipeline: Azure OpenAI prompt enhance → deck generation
+# Full CLI pipeline: OpenAI prompt enhance → deck generation
 python run.py "coffee in Ethiopia"
+
+# Generate a full premium deck for ANY topic (real planner + slidegen, no MongoDB):
+# planner outline (Haiku) → slidegen director → validate → deck.pptx + preview.html
+python scripts/run_topic.py "luxury electric hypercar launch" --slides 10
 
 # API server (FastAPI on :8000) — starts the MongoDB change-stream worker in-process
 python server.py
@@ -18,7 +22,7 @@ python server.py
 # Standalone worker (outline + deck generation from MongoDB queues)
 python run_worker.py
 
-# End-to-end slidegen test with a hand-written outline — no Azure, no MongoDB needed
+# End-to-end slidegen test with a hand-written outline — no enhancer, no MongoDB needed
 python scripts/run_premium_test.py
 
 # Validate a generated deck (structure, ID sync, zIndex uniqueness)
@@ -38,25 +42,26 @@ node scripts/export_pptx.js <deck.json> <out.pptx>
 npm install   # only needed for PPTX export / lucide icons (pptxgenjs, adm-zip, lucide-static)
 ```
 
-There is no requirements.txt. Python deps in use: `anthropic`, `claude-agent-sdk`, `fastapi`, `uvicorn`, `motor`, `anyio`, `openai`, `python-dotenv`, `pydantic`, `bson`. (`.pytest_cache` references a `tests/` directory that no longer exists.)
+There is no requirements.txt. Python deps in use: `anthropic`, `claude-agent-sdk`, `fastapi`, `uvicorn`, `motor`, `anyio`, `openai`, `httpx`, `python-dotenv`, `pydantic`, `bson`. (`.pytest_cache` references a `tests/` directory that no longer exists.)
 
 ### Environment variables (.env, loaded via python-dotenv)
 
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` — required; `preflight()` in `core/config.py` exits if missing
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` — required; `preflight()` in `core/config.py` exits if missing. Deck models default to `claude-opus-4-8` where a fallback exists.
 - `ANTHROPIC_OUTLINE_MODEL` — outline model (default `claude-haiku-4-5`)
 - `DECK_ENGINE` — `slidegen` (default) or `agent` (legacy)
 - `SLIDEGEN_MODE` — `fast` | `premium` | `director` (default `director`)
 - `SLIDEGEN_VISUAL_QA=1` — screenshot + vision-judge each slide after merge, regenerate failures with the judge's feedback (needs `pip install playwright` + `playwright install chromium`)
 - `ANTHROPIC_QA_MODEL` — vision judge model (default `claude-sonnet-4-6`)
 - `MONGODB_URI` — required for server/worker paths only
-- `AZURE_OPENAI_*` / `OPENAI_API_KEY` — only for the prompt enhancer (`enhance.py`)
+- `OPENAI_API_KEY` + `OPENAI_MODEL` / `AZURE_OPENAI_*` — prompt enhancer only (`enhance.py`). The enhancer prefers Azure when `AZURE_OPENAI_API_KEY` is set, else falls back to direct OpenAI; the current `.env` uses direct OpenAI.
+- `PEXELS_API_KEY` — real image search for image elements (`core/pexels.py`); if unset, image `query` strings are left unresolved
 - `PRESENTATION_BATCH_SIZE` — slides per batch, legacy agent engine only (default 8)
 
 ## Architecture
 
 ### Two entry paths into one pipeline
 
-1. **CLI** (`run.py`): `enhance.py` (4 parallel Azure OpenAI calls produce a rich brief) → `core/runner.run_parallel_agent`.
+1. **CLI** (`run.py`): `enhance.py` (8 parallel OpenAI calls — Azure if configured, else direct OpenAI — produce a rich brief) → `core/runner.run_parallel_agent`.
 2. **API** (`server.py` + `core/worker.py`): MongoDB change streams drive a two-stage queue across three collections (`core/storage.py`):
    - `presentations` (status `pending → processing → done`) — worker picks up a prompt, generates an outline via `core/planner.py` (Haiku, ~15s)
    - `outlines` (status `pending → generating → done`) — `POST /api/outlines/:id/generate` flips status, worker generates the full deck (~2 min)
@@ -81,6 +86,13 @@ A deck has three files under `files`: `content`, `baseLayout`, `changelog`. The 
 ### skills/ is prompt content, not documentation
 
 The markdown files in `skills/` (and `prompts/`) are injected verbatim into the LLM system prompt (`core/prompt.py` for the agent engine, `build_slidegen_system` in `core/slidegen.py` for slidegen). Editing them changes what the model generates. `core/config.py` keeps explicit file lists (`CORE_SKILL_FILES`, `ELEMENT_SKILL_FILES`) — adding a skill file requires registering it there or it won't be loaded (and preflight checks the lists, so removing a file without updating them fails startup).
+
+### Image pipeline (query → real URL → local cache)
+
+Image elements don't carry hardcoded photo URLs — the model can't know which Pexels photo ID maps to which picture. Instead each image element carries a `query` string (e.g. "bubble tea pastel cups"), resolved in two stages after the slide specs land:
+
+- **`core/pexels.py`** (`resolve_image_queries`): turns each `query` into a real, relevant Pexels URL via the search API. No-op if `PEXELS_API_KEY` is unset. Must run before prefetch so the cache pulls resolved URLs.
+- **`core/image_cache.py`** (`prefetch_images`): downloads resolved URLs once into `run_dir/images/<sha1>.<ext>` + `manifest.json`, so the QA screenshot pass and the PPTX exporter reuse local copies instead of re-fetching. A 404/flaky URL is simply missing from the manifest — the preview falls back to the remote URL, renders broken, and the visual-QA judge flags it for regeneration.
 
 ### PPTX export
 

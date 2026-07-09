@@ -1,5 +1,10 @@
 .env
 *.md
+# keep the prompt content the pipeline needs at runtime (skills/ + prompts/)
+# and the repo guide, but still ignore stray root/docs markdown
+!CLAUDE.md
+!skills/**/*.md
+!prompts/**/*.md
 __pycache__/
 **/__pycache__/
 *.pyc

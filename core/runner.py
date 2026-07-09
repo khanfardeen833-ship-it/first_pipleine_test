@@ -18,7 +18,7 @@ from core.tracker import Tracker
 from core.renderer import render_message
 from core.prompt import build_system_prompt
 from core.pricing import fmt_money
-from core.merger import merge_presentations
+from core.merger import merge_presentations, write_deck_outputs
 from core.planner import generate_outline, print_outline
 from core import storage
 
@@ -623,8 +623,9 @@ async def _run_batches_and_merge(
         print(f"\n--- merging {len(batch_json_paths)} batch JSONs ---")
         try:
             merged = merge_presentations(batch_json_paths)
-            with open(merged_path, "w", encoding="utf-8") as f:
-                json.dump(merged, f, indent=2)
+            # Writes merged_deck.json (split) + editor_deck.json (flat,
+            # importable in the editor's Import JSON).
+            write_deck_outputs(merged, run_dir)
             print(f"  merged -> {merged_path.name}  "
                   f"({merged_path.stat().st_size:,} bytes)")
             merge_ok = True

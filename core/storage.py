@@ -289,16 +289,6 @@ async def list_outlines(limit: int = 20) -> list:
 # decks collection  (final generated deck JSON)
 # ---------------------------------------------------------------------------
 
-_ARRAY_TYPE_MAP = {
-    "shapeElements": "shape",
-    "iconElements":  "icon",
-    "chartElements": "chart",
-    "tableElements": "table",
-    "imageElements": "image",
-    "embedElements": "embed",
-}
-
-
 def _build_slides(deck: dict) -> list:
     """
     Merge the scattered deck structure into one document per slide.
@@ -306,56 +296,12 @@ def _build_slides(deck: dict) -> list:
     Raw deck keeps content (text strings) and design (positions, styles)
     in separate sections. This collapses them so every element on a slide
     sits together with its content AND its design data.
+
+    Shared with the on-disk editor_deck.json writer — see
+    core/merger.build_editor_slides for the implementation.
     """
-    files     = deck.get("files", {})
-    content   = files.get("content", {})
-    changelog = files.get("changelog", {}).get("slides", {})
-
-    # Build a flat lookup: element_id → {type, ...content_fields}
-    elem_content: dict[str, dict] = {}
-    for array_key, type_name in _ARRAY_TYPE_MAP.items():
-        for rec in content.get(array_key, []):
-            elem_content[rec["id"]] = {"type": type_name, **{k: v for k, v in rec.items() if k != "id"}}
-
-    slides = []
-    for slide in content.get("slides", []):
-        slide_id  = slide["id"]
-        cl_elems  = changelog.get(slide_id, {}).get("elements", {})
-
-        # Build a lookup of text content for this slide
-        text_lookup = {t["id"]: t for t in slide.get("textElements", [])}
-
-        elements = []
-        for elem_id, cl_data in cl_elems.items():
-            merged = {"id": elem_id}
-
-            if elem_id in text_lookup:
-                t = text_lookup[elem_id]
-                merged["type"]             = t.get("type", "text")
-                merged["content"]          = t.get("content", "")
-                merged["formattedContent"] = t.get("formattedContent", "")
-            elif elem_id in elem_content:
-                merged.update(elem_content[elem_id])
-
-            # Overlay design data (position, size, style, animation …)
-            # Drop slideId and updatedAt — redundant at this level
-            for k, v in cl_data.items():
-                if k not in ("slideId", "updatedAt"):
-                    merged[k] = v
-
-            elements.append(merged)
-
-        elements.sort(key=lambda e: e.get("zIndex", 0))
-
-        slides.append({
-            "id":              slide_id,
-            "order":           slide.get("order", 0),
-            "layoutId":        slide.get("layoutId", "blank-canvas"),
-            "backgroundColor": slide.get("backgroundColor", "#ffffff"),
-            "elements":        elements,
-        })
-
-    return slides
+    from core.merger import build_editor_slides
+    return build_editor_slides(deck)
 
 
 async def create_deck_doc(

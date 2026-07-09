@@ -34,6 +34,16 @@ def _merge(base: dict, overrides: dict | None) -> dict:
     return base
 
 
+def _shade(hex_color: str, factor: float) -> str:
+    """Scale a #rrggbb colour toward black (<1) or white-ish (>1)."""
+    h = (hex_color or "#000000").lstrip("#")
+    if len(h) != 6:
+        return hex_color
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (min(255, max(0, int(c * factor))) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 class Deck:
     """Build a valid Bildory deck while leaving all visual choices to the caller."""
 
@@ -181,6 +191,7 @@ class Slide:
         font_family: str = "Trebuchet MS",
         text_align: str = "left",
         rotation: int = 0,
+        opacity: float = 1,
         style: dict | None = None,
         animation: dict | None = None,
         changelog: dict | None = None,
@@ -251,6 +262,7 @@ class Slide:
             "height": height,
             "rotation": rotation,
             "zIndex": z_index,
+            "opacity": opacity,
             "style": text_style,
             "formattedContent": text,
             "animation": animation_block,
@@ -416,6 +428,39 @@ class Slide:
         }
         _merge(change, changelog)
         return self.deck._register(self, element_id, content, change, "imageElements")
+
+    def add_motif(
+        self,
+        motif_type: str = "plexus",
+        *,
+        bg: str | None = None,
+        bg2: str | None = None,
+        accent: str = "#37E29A",
+        accent2: str | None = None,
+        glow: str | None = None,
+        density: float = 0.75,
+        glow_strength: float = 0.85,
+        safe_area: str | None = None,
+        seed: int = 0,
+        opacity: float = 1,
+    ) -> str:
+        """Full-bleed procedural background motif (plexus | hexagons | waves |
+        dot_grid | flow), baked as an SVG image element. Colours default to the
+        slide's own background plus the given accent; glow + gradient live inside
+        the SVG so every renderer shows it as a plain image. See core/motifs."""
+        from core.motifs import motif_data_uri
+        bg = bg or self.background or "#0C2E2B"
+        palette = {
+            "bg": [bg, bg2 or _shade(bg, 0.6)],
+            "accent": accent,
+            "accent2": accent2 or _shade(accent, 1.4),
+            "glow": glow or accent,
+        }
+        src = motif_data_uri(motif_type, width=1280, height=720, palette=palette,
+                             density=density, glow=glow_strength,
+                             safe_area=safe_area, seed=seed)
+        return self.add_image(src, x=0, y=0, width=1280, height=720,
+                              is_background=True, opacity=opacity)
 
     def add_chart(
         self,

@@ -23,33 +23,41 @@ LUCIDE_DIR = ROOT / "node_modules" / "lucide-static" / "icons"
 # the package isn't installed (`npm install echarts`).
 ECHARTS_MIN_JS = ROOT / "node_modules" / "echarts" / "dist" / "echarts.min.js"
 
-# CSS approximations of the editor's 16 named filters
+# The editor's 16 named filters. Kept byte-for-byte in sync with the editor's
+# frontend/src/elements/image/configs/imagePresets.js (IMAGE_FILTERS) so this
+# preview renders images exactly as the editor will after Import JSON.
 FILTER_CSS = {
     "none": "none",
-    "noir": "grayscale(1) contrast(1.3) brightness(0.9)",
+    "noir": "grayscale(1) contrast(1.4) brightness(0.85)",
     "gray": "grayscale(1)",
-    "sepia": "sepia(0.8)",
-    "vintage": "sepia(0.4) saturate(0.8) contrast(0.9) brightness(1.05)",
-    "warm": "sepia(0.25) saturate(1.25) brightness(1.05) hue-rotate(-10deg)",
-    "cool": "saturate(1.1) brightness(1.02) hue-rotate(12deg)",
-    "crossprocess": "saturate(1.4) contrast(1.2) hue-rotate(-15deg)",
-    "bright": "brightness(1.25) saturate(1.05)",
-    "dark": "brightness(0.7) contrast(1.05)",
-    "faded": "saturate(0.65) brightness(1.1) contrast(0.85)",
-    "matte": "contrast(0.9) brightness(1.05) saturate(0.9)",
-    "dynamic": "contrast(1.25) saturate(1.2)",
-    "vibrant": "saturate(1.5) contrast(1.1)",
-    "dramatic": "contrast(1.4) brightness(0.85) saturate(1.1)",
-    "soft": "contrast(0.85) brightness(1.08) saturate(0.95)",
+    "sepia": "sepia(1)",
+    "vintage": "sepia(0.5) contrast(0.85) brightness(1.1) saturate(0.8)",
+    "warm": "sepia(0.25) saturate(1.3) brightness(1.05) hue-rotate(-10deg)",
+    "cool": "saturate(0.85) hue-rotate(195deg) brightness(1.08)",
+    # editor key is "cross"; keep the legacy "crossprocess" alias pointing at it
+    "cross": "saturate(1.6) hue-rotate(15deg) contrast(1.15) brightness(1.05)",
+    "crossprocess": "saturate(1.6) hue-rotate(15deg) contrast(1.15) brightness(1.05)",
+    "bright": "brightness(1.3) contrast(1.05) saturate(1.1)",
+    "dark": "brightness(0.65) contrast(1.15)",
+    "faded": "brightness(1.1) saturate(0.65) contrast(0.82)",
+    "matte": "contrast(0.88) brightness(1.12) saturate(0.75)",
+    "dynamic": "contrast(1.3) saturate(1.4) brightness(1.05)",
+    "vibrant": "saturate(1.9) contrast(1.12) brightness(1.05)",
+    "dramatic": "contrast(1.55) brightness(0.88) saturate(1.25)",
+    "soft": "brightness(1.15) contrast(0.88) saturate(0.9)",
 }
 
+# Decorative frames — kept in sync with the editor's buildSpecialBorderStyle()
+# in frontend/src/elements/image/configs/imagePresets.js.
 SPECIAL_FRAME_CSS = {
-    "thin-frame": "border:1px solid rgba(255,255,255,.9); outline:1px solid rgba(0,0,0,.25);",
-    "double-frame": "border:6px double #ffffff;",
-    "polaroid": "border:12px solid #fff; border-bottom-width:44px; box-shadow:0 8px 24px rgba(0,0,0,.35);",
-    "film": "border:14px solid #111; box-shadow:0 6px 20px rgba(0,0,0,.4);",
-    "rounded-white": "border:10px solid #fff; border-radius:18px;",
-    "inner-shadow": "",  # handled via ::after inset shadow class
+    "thin-frame": "border:3px solid #fff; outline:1.5px solid #ccc;",
+    "double-frame": "border:4px double #999;",
+    "polaroid": ("border-top:8px solid #fff; border-left:8px solid #fff; "
+                 "border-right:8px solid #fff; border-bottom:28px solid #fff; "
+                 "box-shadow:0 2px 8px rgba(0,0,0,.18);"),
+    "film": "border:6px solid #111; border-radius:0;",
+    "rounded-white": "border:10px solid #fff; border-radius:16px; box-shadow:0 0 0 1.5px #ddd;",
+    "inner-shadow": "",  # handled via inset shadow class
 }
 
 
@@ -75,18 +83,30 @@ def lucide_svg(name, color, size):
 
 
 def shadow_css(sh):
+    """filter:drop-shadow(...) — a byte-for-byte port of the editor's
+    buildShadowCSS() (imagePresets.js: offX=sin·dist, offY=-cos·dist, and a
+    second soft drop-shadow when size>0), so previewed image shadows land in the
+    same place and shape as the editor renders after Import JSON. Returns a
+    full `filter:...;` declaration (applied on the outer wrapper), or ""."""
     if not sh or not sh.get("enabled"):
         return ""
     ang = math.radians(sh.get("angle", 135))
     dist = sh.get("distance", 8)
-    dx, dy = round(math.cos(ang) * dist, 1), round(math.sin(ang) * dist, 1)
+    off_x = round(math.sin(ang) * dist)
+    off_y = round(-math.cos(ang) * dist)
     color = sh.get("color", "#000000")
-    op = sh.get("opacity", 40) / 100
     r = int(color[1:3], 16) if color.startswith("#") else 0
     g = int(color[3:5], 16) if color.startswith("#") else 0
     b = int(color[5:7], 16) if color.startswith("#") else 0
-    return (f"box-shadow:{dx}px {dy}px {sh.get('blur', 12)}px "
-            f"{sh.get('size', 0)}px rgba({r},{g},{b},{op:.2f});")
+    al = sh.get("opacity", 40) / 100
+    blur = sh.get("blur", 12)
+    main = f"drop-shadow({off_x}px {off_y}px {blur}px rgba({r},{g},{b},{al:.2f}))"
+    size = sh.get("size", 0) or 0
+    if size > 0:
+        size_blur = round(size * 0.8)
+        size_al = min(1.0, al * 0.6)
+        return f"filter:{main} drop-shadow(0px 0px {size_blur}px rgba({r},{g},{b},{size_al:.2f}));"
+    return f"filter:{main};"
 
 
 def render_image(el, src):
@@ -116,21 +136,26 @@ def render_image(el, src):
             f'border-radius:{radius}"></div>'
         )
 
-    inset = ('<div style="position:absolute;inset:0;box-shadow:inset 0 0 24px rgba(0,0,0,.55);'
+    inset = ('<div style="position:absolute;inset:0;box-shadow:inset 0 0 20px rgba(0,0,0,0.45);'
              f'border-radius:{radius}"></div>'
              if border.get("specialStyle") == "inner-shadow" else "")
 
-    rot = f"rotate({el.get('rotation', 0)}deg)" if el.get("rotation") else ""
+    # Two-div layout mirrors the editor's ImageElement: the OUTER div carries
+    # the drop-shadow filter (so it follows the clipped shape and isn't clipped
+    # away), the INNER div does overflow-clip + border/frame + flip. The colour
+    # filter + blur stay on the <img>.
+    rot = f"transform:rotate({el.get('rotation', 0)}deg);" if el.get("rotation") else ""
     return (
         f'<div style="position:absolute;left:{x}px;top:{y}px;width:{w}px;height:{h}px;'
-        f'z-index:{el.get("zIndex", 0)};opacity:{el.get("opacity", 1)};border-radius:{radius};'
-        f'overflow:hidden;{bcss}{shadow_css(el.get("shadow"))}'
-        f'{f"transform:{rot};" if rot else ""}">'
+        f'z-index:{el.get("zIndex", 0)};opacity:{el.get("opacity", 1)};'
+        f'{rot}{shadow_css(el.get("shadow"))}">'
+        f'<div style="position:relative;width:100%;height:100%;overflow:hidden;'
+        f'border-radius:{radius};{bcss}{flip}">'
         f'<img src="{esc(src)}" style="width:100%;height:100%;'
         f'object-fit:{el.get("objectFit", "cover")};'
         f'object-position:{fp.get("x", 50)}% {fp.get("y", 50)}%;'
-        f'filter:{filt};{flip}">'
-        f"{overlay_html}{inset}</div>"
+        f'filter:{filt};">'
+        f"{overlay_html}{inset}</div></div>"
     )
 
 
@@ -150,7 +175,9 @@ def render_text(el, content):
     )
     if st.get("backgroundColor") not in (None, "", "transparent"):
         css += f"background:{st['backgroundColor']};"
-    opacity = st.get("opacity", 1)
+    # Element-level opacity — the editor applies it on the element wrapper for
+    # every type (CanvasElement), so read it off the element, not the style.
+    opacity = el.get("opacity", st.get("opacity", 1))
     op_css = f"opacity:{opacity};" if opacity != 1 else ""
     return (
         f'<div style="position:absolute;left:{x}px;top:{y}px;width:{el["width"]}px;'

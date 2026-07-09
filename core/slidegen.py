@@ -20,6 +20,7 @@ import hashlib
 import inspect
 import json
 import os
+import random
 import re
 import time
 from pathlib import Path
@@ -30,7 +31,7 @@ from core.config import (
     CORE_SKILLS, ELEM_SKILLS, SKILLS_INDEX,
     CORE_SKILL_FILES, ELEMENT_SKILL_FILES, PROMPTS_DIR, DECK_BUILDER_API,
 )
-from core.merger import merge_presentations
+from core.merger import merge_presentations, write_deck_outputs
 from deck_builder import Deck
 
 ID_OFFSET_PER_SLIDE = 100   # each slide owns a 100-wide element ID / zIndex band
@@ -75,7 +76,7 @@ SLIDE_TOOL = {
                     "properties": {
                         "kind": {
                             "type": "string",
-                            "enum": ["text", "shape", "icon", "image", "chart", "table"],
+                            "enum": ["text", "shape", "icon", "image", "chart", "table", "motif"],
                         },
                     },
                     "required": ["kind"],
@@ -95,6 +96,7 @@ _KIND_DISPATCH = {
     "image": ("add_image", ["src"]),
     "chart": ("add_chart", ["chart_type", "chart_config"]),
     "table": ("add_table", ["cells"]),
+    "motif": ("add_motif", ["motif_type"]),
 }
 
 # Friendly aliases the model might use for the positional field
@@ -151,6 +153,11 @@ def expand_slide_spec(
         # per-slide validation probe runs before resolution).
         if kind == "image" and not el.get("src"):
             el["src"] = ""
+        if kind == "motif":
+            el.setdefault("motif_type", "plexus")
+            # Per-(run,slide) seed so the motif varies between runs but is stable
+            # within one (probe + final + QA expand to the same art).
+            el.setdefault("seed", (int(timestamp) + slide_number * 131) & 0xFFFFF)
         method, positional = _KIND_DISPATCH[kind]
         args = [el.pop(field) for field in positional]
         kwargs = {k: v for k, v in el.items() if k in _ALLOWED[kind]}
@@ -247,9 +254,12 @@ SPEC FORMAT:
   parameters for that primitive, using the exact parameter names:
     text:  text, type (title|subtitle|heading|subheading|paragraph|caption),
            x, y, width, height, color, font_size, font_weight, line_height,
-           font_family, text_align, rotation, style
+           font_family, text_align, rotation, opacity, style
+           (opacity < 1 for watermark/ghost numerals and faint labels)
     shape: shape_type, x, y, width, height, fill, stroke, stroke_width,
            opacity, rotation
+           (frame/outline: fill="transparent" + stroke + stroke_width; NEVER an
+           opaque-filled shape over an image — it hides the photo)
     icon:  icon_name, x, y, size, color, opacity, rotation
     image: query, x, y, width, height, is_background, border_radius, opacity,
            rotation, object_fit, filter, blur, scale_x, scale_y, shadow,
@@ -260,6 +270,13 @@ SPEC FORMAT:
     chart: chart_type, chart_config, x, y, width, height
     table: cells, x, y, col_widths, row_heights, font_size, table_color,
            table_bg, table_bold, table_italic, table_align
+    motif: motif_type (plexus|hexagons|waves|dot_grid|flow), bg (deck's darkest
+           hex), accent (bright palette hex), density (0-1), glow_strength (0-1),
+           safe_area ("left"|"right"|"top"|"bottom" — the side kept sparse for
+           your title). A full-bleed procedural background (glowing network mesh,
+           hex field, waves…) baked as one image — use it as the BOTTOM element
+           on dark title/section/closing slides instead of a plain color field.
+           Put the title on the safe_area side.
 
 RULES:
 - Canvas is 1280x720. Follow all design skills above exactly as if writing
@@ -337,6 +354,22 @@ _ARCHETYPES_BY_LAYOUT = {
          "or icon above the title, a letterspaced kicker below a short centered accent rule, and a "
          "one-line subtitle. Corner ticks at all four corners. No photo — restraint reads "
          "expensive. Target 14-17 elements."),
+        ("circular cutout hero", "Left 45-55%: small logo/kicker, an ULTRA-large two-line title "
+         "(one line in the accent color), a short caption on a small accent bar. Right: a portrait/"
+         "subject photo cropped into a large circle (crop_ratio 'ellipse', width==height) sitting "
+         "inside 1-2 oversized decorative rings/discs (filled palette circles) plus one dotted-dot "
+         "cluster (small ellipses in a grid). Logo top-left. Target 16-20 elements."),
+        ("photo-card + offset panel", "Left ~45%: a solid accent-color offset rectangle panel with "
+         "a photo card floating over it (border_radius 8-12, shadow enabled, filter matched to "
+         "mood), plus a thin down-arrow or corner ticks. Right ~55%: a large 3-line title in "
+         "near-black on a light field, a small color-dot row (3-4 tiny ellipses) as accent, and a "
+         "bottom caption chip on an accent bar. Logo top-right. Target 15-19 elements."),
+        ("dual-photo band", "Deep/dark field. Top: two outlined pill chips (rounded rects + "
+         "letterspaced caption, one with a small arrow icon) as a nav row, a year/edition label "
+         "top-right, and a short 3-4 line paragraph top-right. Center-left: a huge 3-line title "
+         "with ONE line in an accent color. Bottom: a photo band — a small rotated square photo "
+         "(rotation ±3) overlapping a wide landscape photo, both with a subtle filter. Target "
+         "17-22 elements."),
     ],
     "bullets": [
         ("stat band", "Pull the numbers out of the bullets and set them 60-90pt across a band of "
@@ -360,6 +393,12 @@ _ARCHETYPES_BY_LAYOUT = {
          "heading (60-90pt) with a short supporting line and an accent rule — beside a hairline-"
          "ruled sidebar of 2-3 secondary points (small icon + label + caption). Strong hierarchy: "
          "one hero idea, the rest deliberately quieter."),
+        ("numbered card rail", "A single horizontal row of 3-4 equal cards on a subtle rounded "
+         "band. Each card: a soft circle icon medallion up top, a small filled number pill "
+         "(01/02/03/04) on the medallion's lower edge, a bold 2-line heading, a short caption. "
+         "Make the LAST card the highlight — a deep accent-filled panel, elevated slightly, white "
+         "text. Title + subheading sit above the band, with a thin accent rule. Target 20-26 "
+         "elements."),
     ],
     "two_column": [
         ("dual panel", "Two contrasting panels (one tinted/filled, one outlined or white) with "
@@ -384,6 +423,17 @@ _ARCHETYPES_BY_LAYOUT = {
          "kicker; below it three blocks each lead with a 60-90pt number or icon medallion, a "
          "3-5 word heading and 2-line caption, divided by thin vertical rules. Optional bottom "
          "photo strip bleeding off-canvas for energy."),
+        ("pill-header ghost trio", "Three columns, each = a rounded pill header (filled, bold "
+         "centered white label, ~8-14px radius) sitting ABOVE a separate light-gray rounded body "
+         "card holding the caption. Behind each pill an oversized ghost number (01/02/03) at 6-10% "
+         "opacity peeks above the top edge. The MIDDLE column uses the contrast accent color for "
+         "its pill. Title top-left with a thin accent underline and a small arrow-tick motif. "
+         "Target 18-24 elements."),
+        ("tri-circle overlap", "Centered tri-circle overlap (Venn-style) diagram: three large "
+         "translucent filled circles (opacity 55-75) arranged in a triangle so they overlap at the "
+         "center, each carrying a white icon; three text blocks (bold heading + 3-line caption) "
+         "placed around the circles — left, right, and bottom. Title top-left with a small arrow "
+         "motif. Light field. Target 16-20 elements."),
     ],
     "timeline": [
         ("horizontal timeline", "Baseline connector line with circle year-badges, alternating "
@@ -431,6 +481,23 @@ _ARCHETYPES_BY_LAYOUT = {
         ("scorecard grid", "Table read as a scorecard: each data cell pairs its value with a tiny "
          "icon, rating dot, or tier chip; bold accent header band; a floating key-number callout "
          "chip overlapping a top corner of the frame. Generous cell padding."),
+    ],
+    "closing": [
+        ("light art-panel close", "Warm light field. Small logo/monogram top-left. A large "
+         "sign-off word (68-96pt, e.g. 'Thanks') set low-left, a one-line contact/CTA caption "
+         "below it on a short accent rule. Right 40-45%: an abstract Bauhaus-style art panel built "
+         "from 10-16 layered geometric shapes (circles, quarter-circles, half-rounds, thin lines) "
+         "in the palette, several at partial opacity for depth. Target 18-26 elements."),
+        ("dark glow close", "Deep near-black field. Logo top-left. A big light sign-off word "
+         "(64-88pt) center-left with a one-line caption below and a thin accent rule under it. "
+         "Right side: a full-bleed moody image bleeding off the right edge (filter 'dark' or "
+         "'dramatic' + a palette overlay in 'screen'/'soft-light' to fake an ambient glow). A few "
+         "corner ticks. Target 14-18 elements."),
+        ("illustration card close", "Light/cream field with a rounded white card on the left "
+         "holding the sign-off word (accent-colored, 60-84pt) and a small CTA row with a circular "
+         "arrow-icon badge. Right ~45%: a subject/product photo on a filled accent-shape backdrop, "
+         "with 2-3 small decorative shapes (half-round, dot cluster) and a thin connecting line "
+         "for energy. Logo top-left. Target 16-22 elements."),
     ],
 }
 
@@ -578,6 +645,28 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
             "mood (PowerPoint-safe fonts only). Name both fonts in deck_notes; "
             "every slide must use that pairing.\n\n"
         )
+    palette_clause += (
+        "BACKGROUND SYSTEM (decide FIRST, state it in deck_notes as "
+        "\"Background system: ...\"):\n"
+        "A `motif` is a full-bleed generative graphic (motif_type plexus | "
+        "hexagons | waves | dot_grid | flow) — a glowing network mesh, hex field, "
+        "wave field, etc. It fits ONLY genuinely technical subjects: tech, "
+        "software/SaaS, data/analytics, energy/grid, security/cyber, crypto/"
+        "blockchain, AI/ML, telecom, engineering. For EVERYTHING ELSE — luxury, "
+        "lifestyle, food, travel, heritage, health, finance-as-wealth, education, "
+        "human stories, editorial — the DEFAULT IS NO MOTIF; restraint (solid "
+        "fields, photography, whitespace, serif type) reads more premium, and a "
+        "geometric mesh would cheapen it.\n"
+        "  - If (and only if) the topic is clearly in the technical family: choose "
+        "ONE motif family for the whole deck and use it as a full-bleed background "
+        "ONLY on the opening/title slide, any section-divider, and the closing "
+        "slide — NEVER behind body-text/content slides. On those slides add a "
+        "`motif` element (bg = the deck's DARKEST hex, accent = a bright palette "
+        "hex, safe_area = the side the title sits on) as the bottom layer, then "
+        "keep that text side clean. State the family + hexes in deck_notes.\n"
+        "  - Otherwise: \"Background system: none (solid fields + photography).\" "
+        "Do NOT place any motif; plan clean color fields and imagery instead.\n\n"
+    )
     msg = (
         "You are the ART DIRECTOR for this deck. Think through the entire deck's "
         "design as one coherent system, then call emit_design_plan exactly once.\n\n"
@@ -689,6 +778,64 @@ def _deck_seed(outline: dict) -> int:
     (not Python's salted hash) → same topic reproduces, different topics vary."""
     title = (outline or {}).get("title", "") or ""
     return int(hashlib.sha1(title.encode("utf-8")).hexdigest(), 16)
+
+
+def _run_seed(outline: dict) -> int:
+    """Archetype rotation offset. RANDOM per run by default, so the SAME topic
+    yields DIFFERENT layouts each time — the archetypes are inspiration the model
+    riffs on, not a fixed template. Override with the SLIDEGEN_SEED env var:
+      SLIDEGEN_SEED=<int>   pin an exact rotation (reproducible output)
+      SLIDEGEN_SEED=title   restore the old title-stable behaviour
+    """
+    env = os.environ.get("SLIDEGEN_SEED", "").strip()
+    if env:
+        if env.lower() == "title":
+            return _deck_seed(outline)
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    return random.randrange(1 << 30)
+
+
+def _unmask_framed_images(merged: dict) -> int:
+    """Safety net for the 'empty framed box' bug: shapes have no unfilled mode,
+    so the model sometimes fakes a picture-frame with an opaque fill-colour
+    rectangle laid ON TOP of an image — which hides the photo entirely. When a
+    bordered, opaque shape sits ABOVE an image and covers most of it, drop its
+    fill to 'transparent' so the frame keeps its border and the photo shows
+    through. Only touches clearly-a-frame shapes (strokeWidth > 0)."""
+    changelog = merged.get("files", {}).get("changelog", {}).get("slides", {})
+    fixed = 0
+    for sl in changelog.values():
+        els = sl.get("elements", {})
+        images = [r for eid, r in els.items() if eid.startswith("image")]
+        if not images:
+            continue
+        for eid, r in els.items():
+            if not eid.startswith("shape"):
+                continue
+            fill = str(r.get("fill", "")).lower()
+            if fill in ("transparent", "none", ""):
+                continue
+            if (r.get("opacity", 1) or 1) < 0.9:
+                continue
+            if (r.get("strokeWidth", 0) or 0) <= 0:
+                continue  # only unmask shapes that are clearly a frame (bordered)
+            sx, sy = r["position"]["x"], r["position"]["y"]
+            sw, sh = r.get("width", 0), r.get("height", 0)
+            for ir in images:
+                if ir.get("zIndex", 0) >= r.get("zIndex", 0):
+                    continue  # frame must sit ABOVE the image to hide it
+                ix, iy = ir["position"]["x"], ir["position"]["y"]
+                iw, ih = ir.get("width", 0), ir.get("height", 0)
+                ox = max(0, min(sx + sw, ix + iw) - max(sx, ix))
+                oy = max(0, min(sy + sh, iy + ih) - max(sy, iy))
+                if ox * oy >= 0.85 * max(1, iw * ih):  # covers most of the photo
+                    r["fill"] = "transparent"
+                    fixed += 1
+                    break
+    return fixed
 
 
 def assign_archetypes(slides: list, seed: int = 0) -> list:
@@ -1221,7 +1368,10 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     system = build_slidegen_system(outline, config)
     usage_acc: list = []
     retry_log: list = []   # per-attempt retry metrics (instrumentation only)
-    archetypes = assign_archetypes(slides, seed=_deck_seed(outline))
+    seed = _run_seed(outline)
+    archetypes = assign_archetypes(slides, seed=seed)
+    print(f"  [slidegen] archetype seed={seed} "
+          f"(set SLIDEGEN_SEED={seed} to reproduce this layout set)")
     think = mode == "premium"
 
     def neighbors_of(i):  # 1-based slide number
@@ -1337,6 +1487,9 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     clamped = _clamp_text_safe_zone(merged)
     if clamped:
         print(f"  [slidegen] auto-clamped {clamped} text element(s) into the safe zone")
+    unmasked = _unmask_framed_images(merged)
+    if unmasked:
+        print(f"  [slidegen] unmasked {unmasked} image(s) hidden behind an opaque frame")
     t_total = time.time() - t0
 
     stats = {
@@ -1361,8 +1514,9 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     if run_dir is not None:
         run_dir = Path(run_dir)
         run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "merged_deck.json").write_text(
-            json.dumps(merged, indent=2), encoding="utf-8")
+        # Writes merged_deck.json (split) + editor_deck.json (flat, importable
+        # in the editor's Import JSON).
+        write_deck_outputs(merged, run_dir)
         if plans:
             (run_dir / "design_plan.json").write_text(
                 json.dumps(plans, indent=2), encoding="utf-8")
@@ -1416,8 +1570,8 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                     _fit_single_line_labels(m)
                     _align_card_grids(m)
                     _clamp_text_safe_zone(m)
-                    (run_dir / "merged_deck.json").write_text(
-                        json.dumps(m, indent=2), encoding="utf-8")
+                    _unmask_framed_images(m)
+                    write_deck_outputs(m, run_dir)
                     return m
 
                 def _write_part(n, spec):

@@ -34,7 +34,7 @@ Every slide uses the exact same JSON structure — no exceptions:
       "slide_number": 1,
       "title": "<slide heading — 4-7 words, specific>",
       "subtitle": "<optional one-line subheading, or null>",
-      "layout": "<title_only | bullets | two_column | three_column | chart | table | quote | timeline>",
+      "layout": "<title_only | bullets | two_column | three_column | chart | table | quote | timeline | closing>",
       "bullets": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
       "bg": "<dark | light>"
     }
@@ -53,6 +53,9 @@ chart        2-4 bullets — first is the headline insight, rest are supporting 
 table        3-5 bullets — first bullet is the row data (use commas to separate columns).
 quote        2 bullets — first is the quote text, second is "— Name, Title, Company".
 timeline     3-5 bullets — each is "YEAR: what happened".
+closing      Closing / thank-you slide. 0-1 bullets (an optional sign-off line,
+             contact, or CTA). Title is a short sign-off ("Thank You", "Let's talk",
+             "Questions?"). Use ONLY for the last slide.
 
 ━━━ SLIDE TITLE QUALITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Make titles specific and opinionated. Never generic.
@@ -107,7 +110,7 @@ BAD BULLET EXAMPLES (never write like this):
 
 ━━━ STRUCTURAL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Slide 1: layout=title_only (opening statement slide)
-- Last slide: layout=title_only or layout=bullets (closing / call to action)
+- Last slide: layout=closing (a short thank-you / call-to-action slide)
 - 2-4 bullets per slide (never more than 4)
 - Alternate dark and light backgrounds for visual rhythm
 - For trend-based topics: use "Trend N: [Name]" format for trend slide titles
@@ -133,7 +136,7 @@ async def generate_outline(user_prompt: str, total_slides: int, run_dir=None) ->
         f"RULES:\n"
         f"- Exactly {total_slides} slides\n"
         f"- Slide 1 must be layout=title_only\n"
-        f"- Last slide must be layout=title_only or layout=bullets\n"
+        f"- Last slide must be layout=closing (short thank-you / CTA)\n"
         f"- Every bullet must be 8-15 words — real slide text, not summaries\n"
         f"- Use real company names, product names, statistics, and current events\n"
         f"- Mix bullet styles: year-labeled facts, examples, quotes, stats, observations\n"

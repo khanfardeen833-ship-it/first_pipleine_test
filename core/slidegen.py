@@ -261,23 +261,32 @@ SPEC FORMAT:
            (frame/outline: fill="transparent" + stroke + stroke_width; NEVER an
            opaque-filled shape over an image — it hides the photo)
     icon:  icon_name, x, y, size, color, opacity, rotation
-    image: query, x, y, width, height, is_background, border_radius, opacity,
-           rotation, object_fit, filter, blur, scale_x, scale_y, shadow,
-           border, overlay, crop_ratio, crop_rect, focus_point
+    image: query, image_prompt, x, y, width, height, is_background,
+           border_radius, opacity, rotation, object_fit, filter, blur,
+           scale_x, scale_y, shadow, border, overlay, crop_ratio, crop_rect,
+           focus_point
            (use "query": 2-5 literal subject words, e.g. "bubble tea pastel
            cups" — a real Pexels search fills in src. NEVER hand-write a
-           photos/{id} URL: a guessed id returns a random, irrelevant photo.)
+           photos/{id} URL: a guessed id returns a random, irrelevant photo.
+           OPTIONALLY also add "image_prompt": one vivid descriptive sentence
+           of the ideal photo — used verbatim when AI image generation is on,
+           ignored for stock search.)
     chart: chart_type, chart_config, x, y, width, height
     table: cells, x, y, col_widths, row_heights, font_size, table_color,
            table_bg, table_bold, table_italic, table_align
     motif: motif_type (plexus|hexagons|waves|dot_grid|flow|aurora|topography|
-           rings|circuit), bg (deck's darkest hex), accent (bright palette
-           hex), density (0-1), glow_strength (0-1),
-           safe_area ("left"|"right"|"top"|"bottom" — the side kept sparse for
+           rings|circuit|data_horizon), bg (deck's darkest hex), accent (bright
+           palette hex), accent2 (second hex — the ink/charcoal for data_horizon),
+           density (0-1), glow_strength (0-1),
+           safe_area ("left"|"right"|"top"|"bottom"|"center" — kept sparse for
            your title). A full-bleed procedural background (glowing network mesh,
            hex field, waves…) baked as one image — use it as the BOTTOM element
-           on dark title/section/closing slides instead of a plain color field.
-           Put the title on the safe_area side.
+           on title/section/closing slides instead of a plain color field.
+           Put the title on the safe_area side. data_horizon is the LIGHT
+           editorial one: a cream field with a gold perspective grid + charcoal
+           data-viz glyphs + corner frame — use bg = a light cream hex, accent =
+           gold, accent2 = charcoal, safe_area = "center", and centre a SERIF
+           title over it.
 
 RULES:
 - Canvas is 1280x720. Follow all design skills above exactly as if writing
@@ -661,10 +670,22 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
         "decks too: modern brand, product launches, finance/fintech, luxury-tech. "
         "Use it sparingly and low-contrast so it reads as ambient light, not a "
         "pattern.\n"
-        "For EVERYTHING ELSE — food, travel, heritage, health, human stories, "
-        "editorial — the DEFAULT IS NO MOTIF; restraint (solid fields, "
-        "photography, whitespace, serif type) reads more premium, and a visible "
-        "geometric mesh would cheapen it.\n"
+        "  EDITORIAL LIGHT (data_horizon) — a CREAM field with a gold "
+        "perspective 'data horizon' grid, symmetric charcoal data-viz glyphs "
+        "(mini donuts, bars, line charts, sparklines, ruled lines, dot matrices) "
+        "and an ornate corner frame. This is the premium REPORT / METRICS look — "
+        "ideal for marketing, analytics, data, research, finance, strategy and "
+        "business-review decks. Use it on the title/section/closing slides with "
+        "bg = a light cream hex (e.g. #F7F3E9), accent = gold (e.g. #BF9B30), "
+        "accent2 = charcoal (e.g. #3D3A34), safe_area = \"center\", and centre a "
+        "large SERIF title over it (dark charcoal) with a short gold subtitle. "
+        "On a data_horizon slide place NO photos and NO opaque panels over the "
+        "motif — the cream collage IS the composition; let the serif title and "
+        "the motif's own glyphs carry it. Content slides stay on the same cream "
+        "field with charcoal/gold ink.\n"
+        "For EVERYTHING ELSE — food, travel, heritage, health, human stories — "
+        "the DEFAULT IS NO MOTIF; restraint (solid fields, photography, "
+        "whitespace, serif type) reads more premium.\n"
         "  - If (and only if) the topic is clearly in the technical family: choose "
         "ONE motif family for the whole deck and use it as a full-bleed background "
         "ONLY on the opening/title slide, any section-divider, and the closing "
@@ -1350,6 +1371,44 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
     raise RuntimeError(f"slide {slide_number} failed after retries: {last_err}")
 
 
+def _image_style(config: dict) -> str:
+    """A short style string fed to the AI image generator so every image shares
+    the deck's mood/palette (cohesion = premium)."""
+    bits = []
+    tone = (config.get("tone") or "").strip()
+    if tone:
+        bits.append(tone)
+    pal = config.get("palette")
+    if isinstance(pal, str) and pal.strip().lower() not in ("", "auto"):
+        bits.append(f"{pal.strip()} color palette")
+    return ", ".join(bits)
+
+
+async def _resolve_images(specs: list, run_dir, config: dict) -> None:
+    """Fill image-element `src`s using the configured provider.
+
+    IMAGE_PROVIDER / config['image_provider']:
+      - "pexels" (default): stock search only.
+      - "openai" | "ai":    generate bespoke images with gpt-image-1, then let
+                            Pexels backfill anything generation left unresolved.
+      - "auto":             use AI when OPENAI_API_KEY is set, else Pexels.
+    Pexels always runs last as the fallback (it only touches elements that still
+    carry a `query`, which the AI pass clears on success)."""
+    provider = (config.get("image_provider")
+                or os.environ.get("IMAGE_PROVIDER", "pexels")).lower()
+    use_ai = provider in ("openai", "ai", "gpt", "gpt-image") or (
+        provider == "auto" and os.environ.get("OPENAI_API_KEY"))
+    if use_ai and run_dir is not None:
+        try:
+            from core.openai_images import generate_image_queries
+            await generate_image_queries(specs, run_dir,
+                                         style=_image_style(config))
+        except Exception as e:  # noqa: BLE001 — fall through to Pexels
+            print(f"  [images] AI generation error ({e}); falling back to Pexels")
+    from core.pexels import resolve_image_queries
+    await resolve_image_queries(specs)
+
+
 async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                                   run_dir: Path | None = None,
                                   mode: str | None = None,
@@ -1457,11 +1516,11 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         specs = [first_spec] + list(rest)
     t_gen = time.time() - t0
 
-    # Resolve image-element `query` strings into real Pexels URLs BEFORE download
-    # (the model can't guess valid photo IDs, so a fabricated src is a random
-    # photo). Must finish before prefetch so the cache pulls the resolved URLs.
-    from core.pexels import resolve_image_queries
-    await resolve_image_queries(specs)
+    # Resolve image-element `query` strings into real srcs BEFORE download. The
+    # provider (Pexels stock search, or AI generation) is chosen by config/env;
+    # AI writes local files + manifest, then Pexels backfills any failures.
+    # Must finish before prefetch so the cache pulls the resolved srcs.
+    await _resolve_images(specs, run_dir, config)
 
     # Download every referenced image into run_dir/images/ while we expand and
     # merge — the QA renderer and the PPTX exporter both reuse the local copies.
@@ -1607,7 +1666,7 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                     part_paths[n - 1].write_text(json.dumps(part),
                                                  encoding="utf-8")
 
-                await resolve_image_queries(new_specs)  # query -> real Pexels URL
+                await _resolve_images(new_specs, run_dir, config)  # query -> src
                 for r, spec in zip(failing, new_specs):
                     _write_part(r["slide_number"], spec)
                     qa_stats["regenerated"].append(r["slide_number"])

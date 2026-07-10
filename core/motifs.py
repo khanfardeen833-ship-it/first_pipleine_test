@@ -45,6 +45,10 @@ PALETTES = {
     "wine_gold":        {"bg": ["#2E0F1B", "#15070F"], "accent": "#C9A24B", "accent2": "#F1D68E", "glow": "#D8B35E"},
     "emerald_noir":     {"bg": ["#08241C", "#03120F"], "accent": "#34D399", "accent2": "#A2EFCC", "glow": "#34D399"},
     "sapphire_rose":    {"bg": ["#0E1A3A", "#060A1E"], "accent": "#FF8FB1", "accent2": "#FFC9DA", "glow": "#8FB8FF"},
+    # --- light editorial palettes (for the data_horizon collage motif) --------
+    "ivory_gold":       {"bg": ["#F7F3E9", "#FCFBF6"], "accent": "#BF9B30", "accent2": "#3D3A34", "glow": "#BF9B30"},
+    "pearl_slate":      {"bg": ["#F3F5F7", "#FCFCFD"], "accent": "#9AA3B2", "accent2": "#2B303B", "glow": "#9AA3B2"},
+    "linen_sage":       {"bg": ["#F3F4EE", "#FBFBF7"], "accent": "#7E8C6A", "accent2": "#39402F", "glow": "#7E8C6A"},
 }
 
 
@@ -98,6 +102,10 @@ def _density_at(safe_area, w, h, strength=0.9):
         elif safe_area == "left":  t = 1 - x / w
         elif safe_area == "top":   t = y / h
         elif safe_area == "bottom":t = 1 - y / h
+        elif safe_area == "center":
+            # sparse through the central vertical band (keeps a centred title
+            # clean), dense out toward both side margins
+            t = 1 - min(1.0, abs(x - w / 2) / (w / 2))
         else:                       return 1.0
         return max(0.08, 1.0 - t * strength)
     return d
@@ -452,6 +460,183 @@ def _circuit(rng, w, h, pal, density, glow, safe_area):
     return "".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Motif 10 — DATA HORIZON  (light editorial "analytics collage": a perspective
+# vanishing-point grid, symmetric decorative data-viz glyphs, and a corner
+# frame — the premium report / marketing-metrics look. Best on a LIGHT palette
+# with a gold accent + charcoal ink; keeps the centre clear for a serif title.)
+# ---------------------------------------------------------------------------
+def _dh_donut(rng, cx, cy, s, gold, ink):
+    r = s * 0.5
+    sw = max(2.0, s * 0.16)
+    a0 = rng.uniform(0, math.tau)
+    frac = rng.uniform(0.28, 0.5)
+    a1 = a0 + frac * math.tau
+    x0, y0 = cx + r * math.cos(a0), cy + r * math.sin(a0)
+    x1, y1 = cx + r * math.cos(a1), cy + r * math.sin(a1)
+    large = 1 if frac > 0.5 else 0
+    return (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="none" '
+            f'stroke="{ink}" stroke-width="{sw:.1f}" opacity="0.32"/>'
+            f'<path d="M{x0:.1f} {y0:.1f} A{r:.1f} {r:.1f} 0 {large} 1 {x1:.1f} {y1:.1f}" '
+            f'fill="none" stroke="{gold}" stroke-width="{sw:.1f}" stroke-linecap="round"/>')
+
+
+def _dh_bars(rng, cx, cy, s, gold, ink):
+    n = 5
+    bw = s * 0.14
+    gap = s * 0.08
+    total = n * bw + (n - 1) * gap
+    x = cx - total / 2
+    base = cy + s * 0.5
+    hi = rng.randint(0, n - 1)
+    out = []
+    for i in range(n):
+        bh = s * (0.3 + 0.6 * rng.random())
+        col = gold if i == hi else ink
+        op = 0.9 if i == hi else 0.42
+        out.append(f'<rect x="{x:.1f}" y="{base-bh:.1f}" width="{bw:.1f}" '
+                   f'height="{bh:.1f}" fill="{col}" opacity="{op:.2f}"/>')
+        x += bw + gap
+    return "".join(out)
+
+
+def _dh_line(rng, cx, cy, s, gold, ink, *, rising=True, dashed=False):
+    """Zig-zag line chart with node dots — the ascending 'mountain' motif."""
+    n = rng.randint(5, 7)
+    span = s * 2.2
+    x0 = cx - span / 2
+    step = span / (n - 1)
+    trend = 1 if rising else -1
+    pts, y = [], cy + trend * s * 0.5
+    for i in range(n):
+        y += -trend * rng.uniform(0.05, 0.35) * s + rng.uniform(-0.12, 0.12) * s
+        pts.append((x0 + i * step, y))
+    col = gold if rng.random() < 0.5 else ink
+    dash = ' stroke-dasharray="5 4"' if dashed else ''
+    poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    out = [f'<polyline points="{poly}" fill="none" stroke="{col}" '
+           f'stroke-width="1.6" opacity="0.7"{dash}/>']
+    for x, y in pts:
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{s*0.05:.1f}" '
+                   f'fill="#FFFFFF" stroke="{col}" stroke-width="1.4"/>')
+    return "".join(out)
+
+
+def _dh_ruled(rng, cx, cy, s, gold, ink):
+    """Stack of ruled lines standing in for text — varied widths, a gold one."""
+    out = []
+    y = cy - s * 0.4
+    for i in range(rng.randint(3, 4)):
+        lw = s * rng.uniform(0.9, 1.8)
+        col = gold if i == 0 else ink
+        op = 0.6 if i == 0 else 0.3
+        out.append(f'<rect x="{cx:.1f}" y="{y:.1f}" width="{lw:.1f}" '
+                   f'height="{max(2,s*0.06):.1f}" rx="1.5" fill="{col}" opacity="{op:.2f}"/>')
+        y += s * 0.28
+    return "".join(out)
+
+
+def _dh_dots(rng, cx, cy, s, gold, ink):
+    """Small matrix of dots/squares, a few filled gold/ink."""
+    cols, rows = 6, 4
+    step = s * 0.22
+    out = []
+    for r in range(rows):
+        for c in range(cols):
+            x, y = cx + c * step, cy + r * step
+            fill = rng.random()
+            if fill < 0.12:
+                out.append(f'<rect x="{x-2:.1f}" y="{y-2:.1f}" width="4" height="4" fill="{gold}"/>')
+            elif fill < 0.24:
+                out.append(f'<rect x="{x-2:.1f}" y="{y-2:.1f}" width="4" height="4" fill="{ink}" opacity="0.6"/>')
+            else:
+                out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.4" fill="{ink}" opacity="0.3"/>')
+    return "".join(out)
+
+
+def _dh_sparkpanel(rng, cx, cy, s, gold, ink):
+    """A framed panel with a filled area sparkline."""
+    w0, h0 = s * 2.0, s * 1.2
+    x, y = cx - w0 / 2, cy - h0 / 2
+    n = 9
+    step = w0 / (n - 1)
+    ys = [y + h0 * (0.35 + 0.5 * rng.random()) for _ in range(n)]
+    line = " ".join(f"{x+i*step:.1f},{yy:.1f}" for i, yy in enumerate(ys))
+    area = f"{x:.1f},{y+h0:.1f} " + line + f" {x+w0:.1f},{y+h0:.1f}"
+    return (f'<rect x="{x:.1f}" y="{y:.1f}" width="{w0:.1f}" height="{h0:.1f}" '
+            f'rx="4" fill="none" stroke="{ink}" stroke-width="1" opacity="0.25"/>'
+            f'<polygon points="{area}" fill="{gold}" opacity="0.12"/>'
+            f'<polyline points="{line}" fill="none" stroke="{gold}" stroke-width="1.6"/>')
+
+
+def _dh_frame(w, h, gold, ink):
+    m = 30           # border inset
+    b = 56           # corner bracket arm length
+    sw = 2.2
+    P = [f'<rect x="{m}" y="{m}" width="{w-2*m}" height="{h-2*m}" fill="none" '
+         f'stroke="{gold}" stroke-width="1" opacity="0.4"/>']
+    for cx, cy, sx, sy in ((m, m, 1, 1), (w-m, m, -1, 1),
+                           (m, h-m, 1, -1), (w-m, h-m, -1, -1)):
+        P.append(f'<path d="M{cx:.0f} {cy+sy*b:.0f} L{cx:.0f} {cy:.0f} L{cx+sx*b:.0f} {cy:.0f}" '
+                 f'fill="none" stroke="{gold}" stroke-width="{sw}"/>')
+        # small square notch just inside each corner
+        P.append(f'<rect x="{cx+sx*14-4:.0f}" y="{cy+sy*14-4:.0f}" width="8" height="8" '
+                 f'fill="none" stroke="{ink}" stroke-width="1.2" opacity="0.5"/>')
+    # mid-edge tick clusters (left & right): three dots + a short dash
+    for ex in (m, w - m):
+        for k, dy in enumerate((-14, 0, 14)):
+            P.append(f'<circle cx="{ex:.0f}" cy="{h/2+dy:.0f}" r="1.6" fill="{ink}" opacity="0.5"/>')
+        P.append(f'<line x1="{ex:.0f}" y1="{h/2-30:.0f}" x2="{ex:.0f}" y2="{h/2-24:.0f}" '
+                 f'stroke="{gold}" stroke-width="2"/>')
+    return "".join(P)
+
+
+def _data_horizon(rng, w, h, pal, density, glow, safe_area):
+    gold, ink = pal["accent"], pal["accent2"]
+    P = []
+
+    # 1) perspective grid — rays converging on a vanishing point below the title
+    vx, vy = w * 0.5, h * 0.86
+    n_rays = int(20 + density * 20)
+    for i in range(n_rays):
+        t = i / (n_rays - 1)
+        ex = -w * 0.18 + t * (w * 1.36)
+        op = 0.04 + 0.12 * (abs(t - 0.5) * 2)        # faint toward the centre
+        col = gold if i % 3 else ink
+        P.append(f'<line x1="{vx:.1f}" y1="{vy:.1f}" x2="{ex:.1f}" y2="{h*1.02:.1f}" '
+                 f'stroke="{col}" stroke-width="1" opacity="{op:.3f}"/>')
+    for k in range(1, 7):                            # perspective floor lines
+        yy = vy + (h - vy) * (k / 7) ** 1.7
+        P.append(f'<line x1="0" y1="{yy:.1f}" x2="{w}" y2="{yy:.1f}" '
+                 f'stroke="{gold}" stroke-width="1" opacity="{0.05+0.03*k:.3f}"/>')
+
+    # 2) two mirrored ascending 'mountain' line-charts flanking the centre
+    P.append(_dh_line(rng, w * 0.30, h * 0.66, 90, gold, ink, rising=False))
+    P.append(_dh_line(rng, w * 0.30, h * 0.60, 80, gold, ink, rising=False, dashed=True))
+    P.append(_dh_line(rng, w * 0.70, h * 0.66, 90, gold, ink, rising=True))
+    P.append(_dh_line(rng, w * 0.70, h * 0.60, 80, gold, ink, rising=True, dashed=True))
+
+    # 3) symmetric glyph clusters in the side margins (left set, mirrored right)
+    left = [
+        (0.13, 0.20, _dh_dots, 42),
+        (0.14, 0.31, _dh_donut, 60),
+        (0.15, 0.42, _dh_line, 52),
+        (0.13, 0.55, _dh_ruled, 60),
+        (0.11, 0.74, _dh_bars, 80),
+    ]
+    glyphs = list(left) + [(1 - fx, fy, fn, s) for (fx, fy, fn, s) in left]
+    # tweak the mirrored side so it isn't a literal clone: bottom-right becomes
+    # the framed sparkline panel (as in a report cover) instead of bars
+    right_specials = {9: _dh_sparkpanel}
+    for idx, (fx, fy, fn, s) in enumerate(glyphs):
+        fn = right_specials.get(idx, fn)
+        P.append(f'<g>{fn(rng, w*fx, h*fy, s, gold, ink)}</g>')
+
+    # 4) corner frame + edge ticks
+    P.append(_dh_frame(w, h, gold, ink))
+    return "".join(P)
+
+
 _GENERATORS = {
     "plexus": _plexus,
     "dot_grid": _dot_grid,
@@ -462,6 +647,7 @@ _GENERATORS = {
     "topography": _topography,
     "rings": _rings,
     "circuit": _circuit,
+    "data_horizon": _data_horizon,
 }
 MOTIF_TYPES = tuple(_GENERATORS)
 
@@ -474,7 +660,7 @@ def generate_motif(type="plexus", *, width=1280, height=720, palette="green_tech
     """Return a full-bleed SVG string for one motif.
 
     type      : plexus | dot_grid | hexagons | waves | flow
-                | aurora | topography | rings | circuit
+                | aurora | topography | rings | circuit | data_horizon
     palette   : a PALETTES key or a dict {bg:[c1,c2], accent, accent2, glow}
     density   : 0..1  — how busy the motif is
     glow      : 0..1  — halo intensity

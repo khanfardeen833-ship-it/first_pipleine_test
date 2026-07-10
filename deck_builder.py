@@ -445,8 +445,8 @@ class Slide:
         opacity: float = 1,
     ) -> str:
         """Full-bleed procedural background motif (plexus | hexagons | waves |
-        dot_grid | flow | aurora | topography | rings | circuit), baked as an
-        SVG image element. Colours default to the
+        dot_grid | flow | aurora | topography | rings | circuit | data_horizon),
+        baked as an SVG image element. Colours default to the
         slide's own background plus the given accent; glow + gradient live inside
         the SVG so every renderer shows it as a plain image. See core/motifs."""
         from core.motifs import motif_data_uri

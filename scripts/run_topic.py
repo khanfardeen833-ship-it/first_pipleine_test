@@ -53,6 +53,11 @@ async def main():
     parser.add_argument("--audience", default=None, help="target audience")
     parser.add_argument("--font", default=None,
                         help='font family, or "auto" to let the director pick')
+    parser.add_argument("--images", default=None,
+                        choices=["pexels", "openai", "auto"],
+                        help='image source: "pexels" stock (default), "openai" '
+                             'AI-generated (gpt-image-1, needs OPENAI_API_KEY), '
+                             'or "auto" (AI when a key is present)')
     args = parser.parse_args()
 
     config = dict(DEFAULT_CONFIG)
@@ -64,6 +69,8 @@ async def main():
         config["audience"] = args.audience
     if args.font:
         config["fontFamily"] = args.font
+    if args.images:
+        config["image_provider"] = args.images
 
     preflight()
     run_id = f"run-topic-{int(time.time() * 1000)}"

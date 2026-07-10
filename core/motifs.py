@@ -1,6 +1,7 @@
 """
 Procedural SVG motif engine — generates decorative full-bleed background
-graphics (plexus, dot-grid, hexagons, waves, flow-lines) as pure SVG.
+graphics (plexus, dot-grid, hexagons, waves, flow-lines, plus the premium
+families aurora, topography, rings and circuit) as pure SVG.
 
 You are not generating an image; you are generating geometry. Each motif is a
 recipe over shared pieces:
@@ -36,6 +37,14 @@ PALETTES = {
     "amber_dark":  {"bg": ["#2A1C0B", "#160E05"], "accent": "#F2B138", "accent2": "#FFD98A", "glow": "#F2B138"},
     "slate_ice":   {"bg": ["#1C2430", "#0C1017"], "accent": "#8FB2CC", "accent2": "#D7E6F2", "glow": "#AFD0E8"},
     "crimson_dark":{"bg": ["#33101A", "#1A0710"], "accent": "#F2557A", "accent2": "#FFA9BF", "glow": "#F2557A"},
+    # --- premium palettes: deeper base gradients, restrained luxe accents -----
+    "onyx_gold":        {"bg": ["#161513", "#050504"], "accent": "#E8C169", "accent2": "#F7E4AC", "glow": "#E8C169"},
+    "royal_indigo":     {"bg": ["#1A1B3A", "#090A1C"], "accent": "#7C83FF", "accent2": "#BBBEFF", "glow": "#7C83FF"},
+    "deep_ocean":       {"bg": ["#07242E", "#03111A"], "accent": "#2FD4C4", "accent2": "#A0F0E7", "glow": "#2FD4C4"},
+    "graphite_platinum":{"bg": ["#23262B", "#0F1114"], "accent": "#AEB7C2", "accent2": "#E9EFF5", "glow": "#C9D3DE"},
+    "wine_gold":        {"bg": ["#2E0F1B", "#15070F"], "accent": "#C9A24B", "accent2": "#F1D68E", "glow": "#D8B35E"},
+    "emerald_noir":     {"bg": ["#08241C", "#03120F"], "accent": "#34D399", "accent2": "#A2EFCC", "glow": "#34D399"},
+    "sapphire_rose":    {"bg": ["#0E1A3A", "#060A1E"], "accent": "#FF8FB1", "accent2": "#FFC9DA", "glow": "#8FB8FF"},
 }
 
 
@@ -107,6 +116,28 @@ def _scatter(rng, w, h, n, safe_area, bleed=40):
         if rng.random() < d(xc, yc):
             pts.append((x, y))
     return pts
+
+
+def _biased_point(rng, w, h, d, bleed=0.1):
+    """One point, rejection-biased away from the safe area (allowing `bleed`
+    fraction off each edge). Falls back to a plain uniform sample."""
+    for _ in range(30):
+        x = rng.uniform(-bleed * w, (1 + bleed) * w)
+        y = rng.uniform(-bleed * h, (1 + bleed) * h)
+        if rng.random() < d(min(max(x, 0), w), min(max(y, 0), h)):
+            return x, y
+    return rng.uniform(0, w), rng.uniform(0, h)
+
+
+def _contour_pts(cx, cy, base_r, harmonics, steps=140):
+    """Closed loop of `steps` points, radius = base_r perturbed by a few sine
+    harmonics — one topographic contour ring."""
+    pts = []
+    for s in range(steps):
+        ang = math.tau * s / steps
+        rr = base_r + sum(a * math.sin(f * ang + p) for (a, f, p) in harmonics)
+        pts.append(f'{cx + rr*math.cos(ang):.1f},{cy + rr*math.sin(ang):.1f}')
+    return " ".join(pts)
 
 
 # ---------------------------------------------------------------------------
@@ -296,12 +327,141 @@ def _flow(rng, w, h, pal, density, glow, safe_area):
     return "".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Motif 6 — AURORA  (soft layered mesh-gradient orbs — Linear/Stripe hero look)
+# ---------------------------------------------------------------------------
+def _aurora(rng, w, h, pal, density, glow, safe_area):
+    """Big, soft radial-gradient orbs that overlap and bloom over the dark
+    field — the modern 'mesh gradient' background. Colours fade to fully
+    transparent, so no filter is needed and it rasterises cleanly to PNG."""
+    d = _density_at(safe_area, w, h, strength=0.95)
+    n = int(4 + density * 5)                     # 4..9 orbs
+    cols = [pal["accent"], pal["accent2"], pal["glow"]]
+    defs, orbs = [], []
+    for i in range(n):
+        cx, cy = _biased_point(rng, w, h, d, bleed=0.15)
+        rad = rng.uniform(0.30, 0.62) * w
+        col = cols[i % len(cols)]
+        gid = f"aur{i}"
+        peak = round((0.30 + 0.45 * glow) * (0.55 + 0.45 * rng.random()), 3)
+        defs.append(
+            f'<radialGradient id="{gid}" cx="50%" cy="50%" r="50%">'
+            f'<stop offset="0" stop-color="{col}" stop-opacity="{peak}"/>'
+            f'<stop offset="55%" stop-color="{col}" stop-opacity="{peak*0.32:.3f}"/>'
+            f'<stop offset="100%" stop-color="{col}" stop-opacity="0"/>'
+            '</radialGradient>')
+        orbs.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{rad:.1f}" fill="url(#{gid})"/>')
+    return '<defs>' + "".join(defs) + '</defs><g>' + "".join(orbs) + '</g>'
+
+
+# ---------------------------------------------------------------------------
+# Motif 7 — TOPOGRAPHY  (concentric perturbed contour rings around peaks)
+# ---------------------------------------------------------------------------
+def _topography(rng, w, h, pal, density, glow, safe_area):
+    d = _density_at(safe_area, w, h, strength=0.95)
+    peaks = [_biased_point(rng, w, h, d, bleed=0.05)
+             for _ in range(2 if density < 0.55 else 3)]
+    rings = int(9 + density * 13)
+    r_max = w * 0.62
+    parts = [f'<g fill="none" stroke="{pal["accent"]}" stroke-linejoin="round">']
+    for (cx, cy) in peaks:
+        harm = [(rng.uniform(0.05, 0.11), rng.randint(2, 3), rng.uniform(0, math.tau)),
+                (rng.uniform(0.02, 0.05), rng.randint(4, 6), rng.uniform(0, math.tau))]
+        for k in range(1, rings + 1):
+            base = r_max * k / rings
+            pts = _contour_pts(cx, cy, base, [(a*base, f, p) for (a, f, p) in harm])
+            fade = 1 - k / rings
+            op = round(0.10 + 0.28 * fade, 3)
+            sw = round(0.8 + 0.7 * fade, 2)
+            if k % 5 == 0 and glow > 0:
+                parts.append(f'<polygon points="{pts}" stroke="{pal["glow"]}" '
+                             f'stroke-width="{sw}" opacity="{0.45*glow:.3f}" filter="url(#glow)"/>')
+            parts.append(f'<polygon points="{pts}" stroke-width="{sw}" opacity="{op}"/>')
+    parts.append('</g>')
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Motif 8 — RINGS  (concentric orbital arcs around an off-canvas focus)
+# ---------------------------------------------------------------------------
+def _rings(rng, w, h, pal, density, glow, safe_area):
+    """Orbital rings expanding from a focus pushed OFF the non-text edge, so the
+    tight (busy) rings stay away from the title and only wide, sparse arcs sweep
+    across the safe area."""
+    focus = {"right": (-0.05*w, h*0.5), "left": (1.05*w, h*0.5),
+             "top": (w*0.5, 1.05*h), "bottom": (w*0.5, -0.05*h)}
+    cx, cy = focus.get(safe_area, (w*0.16, h*0.9))
+    n = int(7 + density * 12)
+    step = (w * 0.92) / n
+    parts = ['<g fill="none">']
+    for i in range(1, n + 1):
+        r = step * i
+        op = round(max(0.06, 0.42 - 0.02 * i), 3)
+        sw = round(0.7 + rng.uniform(0, 0.8), 2)
+        glowing = rng.random() < 0.3 * glow
+        col = pal["glow"] if glowing else pal["accent"]
+        filt = ' filter="url(#glow)"' if glowing else ''
+        parts.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" stroke="{col}" '
+                     f'stroke-width="{sw}" opacity="{op}"{filt}/>')
+        if rng.random() < 0.5:                       # a satellite riding the ring
+            ang = rng.uniform(0, math.tau)
+            nx, ny = cx + r * math.cos(ang), cy + r * math.sin(ang)
+            rr = rng.uniform(2.0, 3.6)
+            parts.append(f'<circle cx="{nx:.1f}" cy="{ny:.1f}" r="{rr*2.4:.1f}" '
+                         f'fill="{pal["glow"]}" opacity="{0.28*glow:.3f}" filter="url(#soft)"/>')
+            parts.append(f'<circle cx="{nx:.1f}" cy="{ny:.1f}" r="{rr:.1f}" fill="{pal["accent2"]}"/>')
+    parts.append('</g>')
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Motif 9 — CIRCUIT  (PCB-style Manhattan traces with pads/vias)
+# ---------------------------------------------------------------------------
+def _circuit(rng, w, h, pal, density, glow, safe_area):
+    d = _density_at(safe_area, w, h, strength=0.85)
+    n = int(10 + density * 22)
+    pads = []
+    parts = [f'<g stroke="{pal["accent"]}" fill="none" '
+             'stroke-linejoin="round" stroke-linecap="round">']
+    for _ in range(n):
+        x, y = _biased_point(rng, w, h, d, bleed=0.0)
+        px, py = x, y
+        path, horiz = [f'M{px:.1f} {py:.1f}'], rng.random() < 0.5
+        for _s in range(rng.randint(2, 5)):
+            leg = rng.uniform(w * 0.04, w * 0.16) * rng.choice((-1, 1))
+            if horiz: px += leg
+            else:     py += leg
+            path.append(f'L{px:.1f} {py:.1f}')
+            horiz = not horiz
+        d_attr = " ".join(path)
+        op = round(rng.uniform(0.12, 0.4), 3)
+        sw = round(rng.uniform(0.8, 1.5), 2)
+        if rng.random() < 0.22 * glow:
+            parts.append(f'<path d="{d_attr}" stroke="{pal["glow"]}" '
+                         f'stroke-width="{sw+0.6:.2f}" opacity="{0.5*glow:.3f}" filter="url(#glow)"/>')
+        parts.append(f'<path d="{d_attr}" stroke-width="{sw}" opacity="{op}"/>')
+        pads += [(x, y, op), (px, py, op)]
+    parts.append('</g><g>')
+    for (x, y, op) in pads:
+        if rng.random() < 0.35:
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{rng.uniform(4.5,7):.1f}" '
+                         f'fill="{pal["glow"]}" opacity="{0.25*glow:.3f}" filter="url(#soft)"/>')
+        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{rng.uniform(2.2,3.8):.1f}" '
+                     f'fill="{pal["accent"]}" opacity="{min(0.9, op+0.3):.3f}"/>')
+    parts.append('</g>')
+    return "".join(parts)
+
+
 _GENERATORS = {
     "plexus": _plexus,
     "dot_grid": _dot_grid,
     "hexagons": _hexagons,
     "waves": _waves,
     "flow": _flow,
+    "aurora": _aurora,
+    "topography": _topography,
+    "rings": _rings,
+    "circuit": _circuit,
 }
 MOTIF_TYPES = tuple(_GENERATORS)
 
@@ -314,6 +474,7 @@ def generate_motif(type="plexus", *, width=1280, height=720, palette="green_tech
     """Return a full-bleed SVG string for one motif.
 
     type      : plexus | dot_grid | hexagons | waves | flow
+                | aurora | topography | rings | circuit
     palette   : a PALETTES key or a dict {bg:[c1,c2], accent, accent2, glow}
     density   : 0..1  — how busy the motif is
     glow      : 0..1  — halo intensity

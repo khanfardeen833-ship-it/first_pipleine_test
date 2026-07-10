@@ -270,8 +270,9 @@ SPEC FORMAT:
     chart: chart_type, chart_config, x, y, width, height
     table: cells, x, y, col_widths, row_heights, font_size, table_color,
            table_bg, table_bold, table_italic, table_align
-    motif: motif_type (plexus|hexagons|waves|dot_grid|flow), bg (deck's darkest
-           hex), accent (bright palette hex), density (0-1), glow_strength (0-1),
+    motif: motif_type (plexus|hexagons|waves|dot_grid|flow|aurora|topography|
+           rings|circuit), bg (deck's darkest hex), accent (bright palette
+           hex), density (0-1), glow_strength (0-1),
            safe_area ("left"|"right"|"top"|"bottom" — the side kept sparse for
            your title). A full-bleed procedural background (glowing network mesh,
            hex field, waves…) baked as one image — use it as the BOTTOM element
@@ -648,14 +649,21 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
     palette_clause += (
         "BACKGROUND SYSTEM (decide FIRST, state it in deck_notes as "
         "\"Background system: ...\"):\n"
-        "A `motif` is a full-bleed generative graphic (motif_type plexus | "
-        "hexagons | waves | dot_grid | flow) — a glowing network mesh, hex field, "
-        "wave field, etc. It fits ONLY genuinely technical subjects: tech, "
-        "software/SaaS, data/analytics, energy/grid, security/cyber, crypto/"
-        "blockchain, AI/ML, telecom, engineering. For EVERYTHING ELSE — luxury, "
-        "lifestyle, food, travel, heritage, health, finance-as-wealth, education, "
-        "human stories, editorial — the DEFAULT IS NO MOTIF; restraint (solid "
-        "fields, photography, whitespace, serif type) reads more premium, and a "
+        "A `motif` is a full-bleed generative graphic. Two tiers:\n"
+        "  GEOMETRIC (plexus | hexagons | waves | dot_grid | flow | topography | "
+        "rings | circuit) — glowing meshes, hex/wave fields, contour lines, "
+        "orbital rings, PCB traces. These fit ONLY genuinely technical subjects: "
+        "tech, software/SaaS, data/analytics, energy/grid, security/cyber, crypto/"
+        "blockchain, AI/ML, telecom, engineering. (circuit = hardware/embedded; "
+        "rings/topography = data/systems/geo.)\n"
+        "  ATMOSPHERIC (aurora) — soft, blurred mesh-gradient orbs, no visible "
+        "geometry. This is the one motif refined enough for premium non-technical "
+        "decks too: modern brand, product launches, finance/fintech, luxury-tech. "
+        "Use it sparingly and low-contrast so it reads as ambient light, not a "
+        "pattern.\n"
+        "For EVERYTHING ELSE — food, travel, heritage, health, human stories, "
+        "editorial — the DEFAULT IS NO MOTIF; restraint (solid fields, "
+        "photography, whitespace, serif type) reads more premium, and a visible "
         "geometric mesh would cheapen it.\n"
         "  - If (and only if) the topic is clearly in the technical family: choose "
         "ONE motif family for the whole deck and use it as a full-bleed background "
@@ -1463,6 +1471,22 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         prefetch_task = asyncio.create_task(
             prefetch_images(specs, Path(run_dir)))
 
+    # Deterministic layout normalization — the LLM decided design INTENT; this
+    # pass guarantees clean EXECUTION (snap/align/spacing/overlap/safe-zone)
+    # before expansion. Conservative: only sub-tolerance drift is corrected.
+    from core.layout import normalize_layout
+    layout_fixes = layout_unresolved = 0
+    for i, spec in enumerate(specs, start=1):
+        _, rep = normalize_layout(spec)
+        layout_fixes += len(rep)
+        layout_unresolved += len(rep.unresolved)
+        if rep.unresolved:
+            print(f"  [layout] slide {i}: {len(rep.unresolved)} overlap(s) "
+                  f"deterministic fixes couldn't resolve — left for visual QA")
+    if layout_fixes:
+        print(f"  [slidegen] layout normalization applied {layout_fixes} "
+              f"correction(s); {layout_unresolved} left for visual QA")
+
     # Deterministic expansion + merge (existing merger, via temp files)
     now = int(time.time() * 1000)
     deck_id = f"deck-{now}"
@@ -1576,6 +1600,7 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
 
                 def _write_part(n, spec):
                     specs[n - 1] = spec
+                    normalize_layout(spec)   # same geometry guarantee on QA rerun
                     part = expand_slide_spec(spec, deck_title=title,
                                              slide_number=n,
                                              deck_id=deck_id, timestamp=now)

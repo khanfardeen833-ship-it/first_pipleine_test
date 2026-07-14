@@ -332,6 +332,18 @@ LEGIBILITY IS NON-NEGOTIABLE — violating any of these fails the slide:
 - Text elements must never overlap each other or sit under decorative
   elements. Size every text box to its content (height >= number of lines x
   font_size x line_height) before placing neighbors.
+- Icon badges, index numerals (01/02/03), and oversized stat numbers get their
+  OWN clear space — never place them on top of, or touching, a heading, title,
+  subtitle, or the words of any text run. Keep a >=16px gap between a badge/
+  numeral and adjacent text; if a card is too tight to hold a badge AND its
+  heading without collision, drop the badge rather than stacking them.
+- A row of cards/panels is ONE set: give every card in the row identical width
+  AND identical height, with aligned top and bottom edges. Never let one card
+  be taller or bleed past the row while its siblings stop short.
+- Emit EVERY text block the plan calls for — kicker, title, subtitle, body, and
+  the CTA/closing row. Never leave a planned column or half of the slide empty;
+  if content is sparse, enlarge and space it, do not drop it. Set the slide
+  background to the shade the plan specifies (light vs dark) — do not invert it.
 - ALL text stays fully inside the safe zone: x >= 48, y >= 48,
   x + width <= 1232, y + height <= 672. Only images and shapes may bleed
   off-canvas. Page-number captions sit at y <= 672 too.
@@ -339,6 +351,17 @@ LEGIBILITY IS NON-NEGOTIABLE — violating any of these fails the slide:
   if a label needs 3 lines, shorten the wording, don't shrink the font.
 - Text placed over a photo requires a dark overlay (opacity 45-70) or a solid
   color panel behind it — never raw text on a busy image.
+- CONTRAST: anything the reader must actually read (body copy, stat labels,
+  captions) uses a near-full-strength ink color against its background. Never
+  set body/label text in a faint mid-grey (e.g. #9AA3B2) — reserve muted greys
+  for hairlines, dividers, and decoration only, never for readable text.
+- SIZE TEXT BOXES FOR THE WORST CASE: assume the copy wraps to one MORE line
+  than you expect and add ~10px vertical slack, so nothing clips or collides at
+  render time. Never butt a text box's bottom edge against the element below it.
+- DENSITY NEVER BEATS CLARITY: hitting the element count must not push spacing
+  below the minimums (>=24px padding inside cards, >=16px between separate
+  elements). If a region is too tight to hold everything cleanly, use fewer,
+  larger elements — a clean 15-element slide beats a crammed 25-element one.
 """
 
 # Composition archetypes — rotated so adjacent slides never share a skeleton.
@@ -733,20 +756,83 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
     )
     if on_entry is not None:
         buf, streamed = "", set()
+        # [plan-instr] additive-only latency instrumentation. All timestamps on
+        # ONE time.monotonic() clock relative to plan_call_started. No control
+        # flow or behavior changes — every print is a pure side effect.
+        _pi_t0 = time.monotonic()
+        def _pi():  # seconds since plan_call_started
+            return time.monotonic() - _pi_t0
+        _pi_thinking_seen = False
+        _pi_first_json = None      # thinking_phase boundary (silent time upper bound)
+        _pi_first_entry = None     # time_to_first_entry
+        _pi_first_launch = None    # dead_serial_time (first executor launched)
+        _pi_last_entry = None      # for entry_spread / tail_after_last_entry
+        print("[plan-instr] plan_call_started t=0.000", flush=True)
         async with client.messages.stream(**request) as stream:
             async for event in stream:
-                if (getattr(event, "type", "") == "content_block_delta"
-                        and getattr(event.delta, "type", "") == "input_json_delta"):
+                _pi_etype = getattr(event, "type", "")
+                _pi_delta = getattr(event, "delta", None)
+                _pi_dtype = getattr(_pi_delta, "type", "")
+                if (not _pi_thinking_seen and _pi_etype == "content_block_delta"
+                        and _pi_dtype == "thinking_delta"):
+                    _pi_thinking_seen = True
+                    print(f"[plan-instr] first_thinking_delta t={_pi():.3f}",
+                          flush=True)
+                if (_pi_etype == "content_block_delta"
+                        and _pi_dtype == "input_json_delta"):
+                    if _pi_first_json is None:
+                        _pi_first_json = _pi()
+                        # thinking_phase = silent time before the first
+                        # input_json_delta = UPPER BOUND on thinking (this SDK
+                        # path does not surface thinking deltas separately).
+                        print(f"[plan-instr] first_json_delta t={_pi_first_json:.3f} "
+                              f"thinking_phase={_pi_first_json:.3f}s "
+                              f"(silent upper-bound; thinking_delta_seen="
+                              f"{_pi_thinking_seen})", flush=True)
                     buf += event.delta.partial_json
                     notes_p, entries = _parse_partial_plan(buf)
                     if notes_p is None:
                         continue
                     for n, plan_text in entries.items():
                         if n not in streamed:
+                            if _pi_first_entry is None:
+                                _pi_first_entry = _pi()
+                                print(f"[plan-instr] first_plan_entry_parsed n={n} "
+                                      f"t={_pi_first_entry:.3f} "
+                                      f"time_to_first_entry={_pi_first_entry:.3f}s",
+                                      flush=True)
+                            else:
+                                print(f"[plan-instr] entry_parsed n={n} "
+                                      f"t={_pi():.3f}", flush=True)
+                            _pi_last_entry = _pi()
                             streamed.add(n)
+                            if _pi_first_launch is None:
+                                _pi_first_launch = _pi()
+                                print(f"[plan-instr] first_slide_executor_launched "
+                                      f"n={n} t={_pi_first_launch:.3f} "
+                                      f"dead_serial_time={_pi_first_launch:.3f}s",
+                                      flush=True)
                             on_entry(n, f"DECK-WIDE SYSTEM: {notes_p}\n\n"
                                         f"THIS SLIDE: {plan_text}")
             resp = await stream.get_final_message()
+        _pi_wall = _pi()
+        print(f"[plan-instr] plan_call_completed t={_pi_wall:.3f}", flush=True)
+        _pi_tte = _pi_first_entry if _pi_first_entry is not None else -1.0
+        _pi_spread = ((_pi_last_entry - _pi_first_entry)
+                      if (_pi_first_entry is not None
+                          and _pi_last_entry is not None) else -1.0)
+        _pi_dead = _pi_first_launch if _pi_first_launch is not None else -1.0
+        _pi_think = _pi_first_json if _pi_first_json is not None else -1.0
+        _pi_json_phase = ((_pi_wall - _pi_first_json)
+                          if _pi_first_json is not None else -1.0)
+        _pi_tail = ((_pi_wall - _pi_last_entry)
+                    if _pi_last_entry is not None else -1.0)
+        print(f"[plan-instr] SUMMARY time_to_first_entry={_pi_tte:.3f}s "
+              f"entry_spread={_pi_spread:.3f}s dead_serial_time={_pi_dead:.3f}s "
+              f"thinking_phase={_pi_think:.3f}s "
+              f"json_emission_phase={_pi_json_phase:.3f}s "
+              f"plan_wall={_pi_wall:.3f}s tail_after_last_entry={_pi_tail:.3f}s",
+              flush=True)
     else:
         resp = await client.messages.create(**request)
     usage_acc.append(resp.usage)
@@ -1605,6 +1691,25 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                 json.dumps(plans, indent=2), encoding="utf-8")
         if prefetch_task is not None:
             await prefetch_task  # manifest must exist before QA render / export
+            # Deterministic broken-image guard (no vision model): a 404/flaky URL
+            # is simply absent from the manifest and would render as a broken
+            # image. Retry the fetch once — catches transient failures — and warn
+            # on any that remain, so a broken image doesn't silently ship when the
+            # visual-QA pass is off. Renderers resolve by URL->manifest at render
+            # time, so a late manifest update needs no re-merge.
+            from core.image_cache import load_manifest, image_urls_from_specs
+            _man = load_manifest(run_dir)
+            _broken = [u for u in image_urls_from_specs(specs) if u not in _man]
+            if _broken:
+                print(f"  [images] {len(_broken)} image(s) failed to cache — "
+                      f"retrying fetch")
+                _man = await prefetch_images(specs, Path(run_dir))
+                _broken = [u for u in image_urls_from_specs(specs)
+                           if u not in _man]
+                if _broken:
+                    print(f"  [images] WARNING: {len(_broken)} image(s) still "
+                          f"unresolved after retry (may render broken): "
+                          f"{_broken[:3]}")
 
         # Deliver-then-patch: hand the deck to the caller NOW; the QA loop
         # below improves slides in place and the caller patches afterwards.
@@ -1615,96 +1720,160 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                 print(f"  [slidegen] on_deck_ready callback failed (non-fatal): {e}")
 
         # ── Visual QA loop: screenshot + vision judge, regenerate failures ──
-        if os.environ.get("SLIDEGEN_VISUAL_QA", "0") == "1":
-            from core.image_cache import prefetch_images
-            from core.visual_qa import run_visual_qa, format_feedback, print_report
+        # Visual QA on by default; set SLIDEGEN_VISUAL_QA=0 to disable. It is
+        # the only reliable catcher of visual issues (overlaps/contrast/broken
+        # images). Guarded so a missing Playwright/browser degrades to shipping
+        # the deck without QA rather than crashing generation.
+        _qa = os.environ.get("SLIDEGEN_VISUAL_QA", "1").strip().lower()
+        if _qa not in ("0", "false", "no", "off", ""):
+            try:
+                from core.image_cache import prefetch_images
+                from core.visual_qa import run_visual_qa, format_feedback, print_report
 
-            t_qa = time.time()
-            report = await run_visual_qa(run_dir, outline=outline, plans=plans)
-            print_report(report)
-            failing = [r for r in report["slides"] if not r["pass"]]
-            qa_stats = {
-                "initial_scores": {r["slide_number"]: r["score"]
-                                   for r in report["slides"]},
-                "regenerated": [], "reverted": [],
-                "judge_tokens": dict(report["tokens"]),
-            }
-
-            if failing:
-                nums = [r["slide_number"] for r in failing]
-                print(f"  [visual-qa] regenerating slide(s) {nums} with feedback")
-                old_specs = {n: specs[n - 1] for n in nums}
-                new_specs = await asyncio.gather(*[
-                    _generate_one(client, model, system, outline,
-                                  slides[r["slide_number"] - 1],
-                                  r["slide_number"], usage_acc,
-                                  archetypes[r["slide_number"] - 1],
-                                  neighbors_of(r["slide_number"]),
-                                  plan_text=plans.get(r["slide_number"]),
-                                  think=False,
-                                  qa_feedback=format_feedback(r),
-                                  retry_log=retry_log, phase="qa")
-                    for r in failing
-                ])
-
-                def _remerge():
-                    m = merge_presentations(part_paths)
-                    m["presentation"]["description"] = outline.get("subtitle", "")
-                    _fit_single_line_labels(m)
-                    _align_card_grids(m)
-                    _clamp_text_safe_zone(m)
-                    _unmask_framed_images(m)
-                    write_deck_outputs(m, run_dir)
-                    return m
-
-                def _write_part(n, spec):
-                    specs[n - 1] = spec
-                    normalize_layout(spec)   # same geometry guarantee on QA rerun
-                    part = expand_slide_spec(spec, deck_title=title,
-                                             slide_number=n,
-                                             deck_id=deck_id, timestamp=now)
-                    part_paths[n - 1].write_text(json.dumps(part),
-                                                 encoding="utf-8")
-
-                await _resolve_images(new_specs, run_dir, config)  # query -> src
-                for r, spec in zip(failing, new_specs):
-                    _write_part(r["slide_number"], spec)
-                    qa_stats["regenerated"].append(r["slide_number"])
-                await prefetch_images(new_specs, run_dir)  # new image URLs
-                merged = _remerge()
-
-                # re-judge only the regenerated slides; revert any that got worse
-                report2 = await run_visual_qa(run_dir, outline=outline,
-                                              plans=plans,
-                                              only_slides=set(nums))
-                new_by_n = {r["slide_number"]: r for r in report2["slides"]}
-                old_by_n = {r["slide_number"]: r for r in failing}
-                reverted = False
-                for n in nums:
-                    if new_by_n[n]["score"] < old_by_n[n]["score"]:
-                        print(f"  [visual-qa] slide {n} got worse "
-                              f"({old_by_n[n]['score']} -> {new_by_n[n]['score']}) "
-                              f"— keeping original")
-                        _write_part(n, old_specs[n])
-                        qa_stats["reverted"].append(n)
-                        reverted = True
-                if reverted:
-                    merged = _remerge()
-                qa_stats["final_scores"] = {
-                    n: (old_by_n[n]["score"] if n in qa_stats["reverted"]
-                        else new_by_n[n]["score"])
-                    for n in nums
+                t_qa = time.time()
+                report = await run_visual_qa(run_dir, outline=outline, plans=plans)
+                print_report(report)
+                failing = [r for r in report["slides"] if not r["pass"]]
+                qa_stats = {
+                    "initial_scores": {r["slide_number"]: r["score"]
+                                       for r in report["slides"]},
+                    "regenerated": [], "reverted": [],
+                    "judge_tokens": dict(report["tokens"]),
                 }
-                qa_stats["judge_tokens"]["input"] += report2["tokens"]["input"]
-                qa_stats["judge_tokens"]["output"] += report2["tokens"]["output"]
 
-            qa_stats["seconds"] = round(time.time() - t_qa, 1)
-            stats["visual_qa"] = qa_stats
-            stats["total_seconds"] = round(time.time() - t0, 1)
-            print(f"  [visual-qa] done in {qa_stats['seconds']}s — "
-                  f"regenerated {len(qa_stats['regenerated'])}, "
-                  f"reverted {len(qa_stats['reverted'])}")
+                if failing:
+                    nums = [r["slide_number"] for r in failing]
+                    print(f"  [visual-qa] regenerating slide(s) {nums} with feedback")
+                    old_specs = {n: specs[n - 1] for n in nums}
+                    new_specs = await asyncio.gather(*[
+                        _generate_one(client, model, system, outline,
+                                      slides[r["slide_number"] - 1],
+                                      r["slide_number"], usage_acc,
+                                      archetypes[r["slide_number"] - 1],
+                                      neighbors_of(r["slide_number"]),
+                                      plan_text=plans.get(r["slide_number"]),
+                                      think=False,
+                                      qa_feedback=format_feedback(r),
+                                      retry_log=retry_log, phase="qa")
+                        for r in failing
+                    ])
 
+                    def _remerge():
+                        m = merge_presentations(part_paths)
+                        m["presentation"]["description"] = outline.get("subtitle", "")
+                        _fit_single_line_labels(m)
+                        _align_card_grids(m)
+                        _clamp_text_safe_zone(m)
+                        _unmask_framed_images(m)
+                        write_deck_outputs(m, run_dir)
+                        return m
+
+                    def _write_part(n, spec):
+                        specs[n - 1] = spec
+                        normalize_layout(spec)   # same geometry guarantee on QA rerun
+                        part = expand_slide_spec(spec, deck_title=title,
+                                                 slide_number=n,
+                                                 deck_id=deck_id, timestamp=now)
+                        part_paths[n - 1].write_text(json.dumps(part),
+                                                     encoding="utf-8")
+
+                    await _resolve_images(new_specs, run_dir, config)  # query -> src
+                    for r, spec in zip(failing, new_specs):
+                        _write_part(r["slide_number"], spec)
+                        qa_stats["regenerated"].append(r["slide_number"])
+                    await prefetch_images(new_specs, run_dir)  # new image URLs
+                    merged = _remerge()
+
+                    # re-judge only the regenerated slides; revert any that got worse
+                    report2 = await run_visual_qa(run_dir, outline=outline,
+                                                  plans=plans,
+                                                  only_slides=set(nums))
+                    new_by_n = {r["slide_number"]: r for r in report2["slides"]}
+                    old_by_n = {r["slide_number"]: r for r in failing}
+                    new_specs_by_n = {r["slide_number"]: sp
+                                      for r, sp in zip(failing, new_specs)}
+                    qa_stats["judge_tokens"]["input"] += report2["tokens"]["input"]
+                    qa_stats["judge_tokens"]["output"] += report2["tokens"]["output"]
+
+                    # Keep the better of {original, first regen} per slide, tracked as
+                    # the running best so still-bad slides can be retried.
+                    best = {}
+                    for n in nums:
+                        if new_by_n[n]["score"] >= old_by_n[n]["score"]:
+                            best[n] = {"spec": new_specs_by_n[n],
+                                       "score": new_by_n[n]["score"],
+                                       "entry": new_by_n[n]}
+                        else:
+                            print(f"  [visual-qa] slide {n} got worse "
+                                  f"({old_by_n[n]['score']} -> {new_by_n[n]['score']}) "
+                                  f"— keeping original")
+                            best[n] = {"spec": old_specs[n],
+                                       "score": old_by_n[n]["score"],
+                                       "entry": old_by_n[n]}
+                            qa_stats["reverted"].append(n)
+                    for n in nums:                          # disk == running best
+                        _write_part(n, best[n]["spec"])
+
+                    # Escalated retry: a visibly-broken slide (score <= SEVERE, e.g.
+                    # missing content / bad overlaps) must not ship. Keep regenerating
+                    # it with the latest judge feedback, keeping the best version, until
+                    # it clears the bar or we exhaust MAX_ATTEMPTS total tries per slide.
+                    SEVERE = int(os.environ.get("SLIDEGEN_QA_SEVERE_MAX", "4"))
+                    MAX_ATTEMPTS = max(1, int(
+                        os.environ.get("SLIDEGEN_QA_MAX_ATTEMPTS", "3")))
+                    attempt = 1                             # the first regen already ran
+                    while attempt < MAX_ATTEMPTS:
+                        severe = [n for n in nums if best[n]["score"] <= SEVERE]
+                        if not severe:
+                            break
+                        attempt += 1
+                        print(f"  [visual-qa] escalated retry {attempt}/{MAX_ATTEMPTS} "
+                              f"for severe slide(s) {severe} (score <= {SEVERE})")
+                        cand = await asyncio.gather(*[
+                            _generate_one(client, model, system, outline,
+                                          slides[n - 1], n, usage_acc,
+                                          archetypes[n - 1], neighbors_of(n),
+                                          plan_text=plans.get(n), think=False,
+                                          qa_feedback=format_feedback(best[n]["entry"]),
+                                          retry_log=retry_log, phase="qa")
+                            for n in severe])
+                        cand_by_n = dict(zip(severe, cand))
+                        await _resolve_images(cand, run_dir, config)
+                        for n in severe:
+                            _write_part(n, cand_by_n[n])
+                        await prefetch_images(cand, run_dir)
+                        _remerge()
+                        rep = await run_visual_qa(run_dir, outline=outline,
+                                                  plans=plans, only_slides=set(severe))
+                        rep_by_n = {r["slide_number"]: r for r in rep["slides"]}
+                        qa_stats["judge_tokens"]["input"] += rep["tokens"]["input"]
+                        qa_stats["judge_tokens"]["output"] += rep["tokens"]["output"]
+                        for n in severe:
+                            if rep_by_n[n]["score"] > best[n]["score"]:
+                                best[n] = {"spec": cand_by_n[n],
+                                           "score": rep_by_n[n]["score"],
+                                           "entry": rep_by_n[n]}
+                                qa_stats.setdefault("escalated", [])
+                                if n not in qa_stats["escalated"]:
+                                    qa_stats["escalated"].append(n)
+                            else:
+                                _write_part(n, best[n]["spec"])   # revert to best
+
+                    merged = _remerge()
+                    qa_stats["final_scores"] = {n: best[n]["score"] for n in nums}
+
+                qa_stats["seconds"] = round(time.time() - t_qa, 1)
+                stats["visual_qa"] = qa_stats
+                stats["total_seconds"] = round(time.time() - t0, 1)
+                print(f"  [visual-qa] done in {qa_stats['seconds']}s — "
+                      f"regenerated {len(qa_stats['regenerated'])}, "
+                      f"reverted {len(qa_stats['reverted'])}")
+
+
+            except Exception as _qa_err:
+                print(f"  [visual-qa] skipped — unavailable or failed "
+                      f"({type(_qa_err).__name__}: {_qa_err}); shipping deck "
+                      f"without QA (install playwright to enable).")
         stats["retries"] = _summarize_retries(retry_log)
         _print_retry_summary(stats["retries"])
         (run_dir / "slidegen_stats.json").write_text(

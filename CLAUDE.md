@@ -30,8 +30,8 @@ python validate.py workspace/<run-id>/merged_deck.json
 
 # Visual QA: screenshot every slide (Playwright) + vision-judge it (core/visual_qa.py)
 python core/visual_qa.py workspace/<run-id>/merged_deck.json
-# ...or enable the full judge→regenerate loop inside slidegen:
-SLIDEGEN_VISUAL_QA=1 python scripts/run_topic.py "topic" --slides 10
+# The full judge→regenerate loop runs INSIDE slidegen by default now; disable with:
+SLIDEGEN_VISUAL_QA=0 python scripts/run_topic.py "topic" --slides 10
 
 # Render a deck to a standalone preview.html (mimics the editor, incl. features PPTX export lacks)
 python scripts/render_html_preview.py workspace/<run-id>/merged_deck.json
@@ -50,7 +50,7 @@ There is no requirements.txt. Python deps in use: `anthropic`, `claude-agent-sdk
 - `ANTHROPIC_OUTLINE_MODEL` — outline model (default `claude-haiku-4-5`)
 - `DECK_ENGINE` — `slidegen` (default) or `agent` (legacy)
 - `SLIDEGEN_MODE` — `fast` | `premium` | `director` (default `director`)
-- `SLIDEGEN_VISUAL_QA=1` — screenshot + vision-judge each slide after merge, regenerate failures with the judge's feedback (needs `pip install playwright` + `playwright install chromium`)
+- `SLIDEGEN_VISUAL_QA` — screenshot + vision-judge each slide after merge, regenerate failures (incl. escalated retry of slides still ≤`SLIDEGEN_QA_SEVERE_MAX`, default 4, up to `SLIDEGEN_QA_MAX_ATTEMPTS`, default 3). **On by default**; set `SLIDEGEN_VISUAL_QA=0` to disable. Needs `pip install playwright` + `playwright install chromium`; if Playwright is missing it degrades gracefully (ships the deck without QA + a warning) rather than failing.
 - `ANTHROPIC_QA_MODEL` — vision judge model (default `claude-sonnet-4-6`)
 - `MONGODB_URI` — required for server/worker paths only
 - `OPENAI_API_KEY` + `OPENAI_MODEL` / `AZURE_OPENAI_*` — prompt enhancer only (`enhance.py`). The enhancer prefers Azure when `AZURE_OPENAI_API_KEY` is set, else falls back to direct OpenAI; the current `.env` uses direct OpenAI.

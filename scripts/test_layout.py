@@ -121,6 +121,41 @@ def test_overlap():
     check("overlap: text-on-card layering preserved",
           [geom(e) for e in els] == before)
 
+    # a SMALL badge (ellipse) dropped on a paragraph is a real collision, not a
+    # card label -> the badge must be separated. (Regression: the slide-3 bug.)
+    els = [
+        {"kind": "text", "x": 88, "y": 212, "width": 496, "height": 80, "text": "para"},
+        {"kind": "shape", "shape_type": "ellipse", "x": 88, "y": 250,
+         "width": 56, "height": 56, "fill": "#3E7BFA"},
+    ]
+    L.resolve_overlaps(els, [0, 1], L.LayoutReport())
+    ox, oy = L._intersection(geom(els[0]), geom(els[1]))
+    check("overlap: small badge on paragraph separated",
+          ox <= L.MIN_OVERLAP or oy <= L.MIN_OVERLAP, f"ox={ox} oy={oy}")
+
+    # a thin header BAR crossing a subtitle is a collision, not a label backing.
+    # (Regression: the slide-4 CHINA-column bug.)
+    els = [
+        {"kind": "text", "x": 48, "y": 200, "width": 800, "height": 32, "text": "subtitle"},
+        {"kind": "shape", "shape_type": "rectangle", "x": 48, "y": 198,
+         "width": 336, "height": 56, "fill": "#3E7BFA"},
+    ]
+    L.resolve_overlaps(els, [0, 1], L.LayoutReport())
+    ox, oy = L._intersection(geom(els[0]), geom(els[1]))
+    check("overlap: bar crossing subtitle separated",
+          ox <= L.MIN_OVERLAP or oy <= L.MIN_OVERLAP, f"ox={ox} oy={oy}")
+
+    # an icon centred on its badge is nested composition -> untouched.
+    els = [
+        {"kind": "shape", "shape_type": "ellipse", "x": 128, "y": 224,
+         "width": 56, "height": 56, "fill": "#3E7BFA"},
+        {"kind": "icon", "icon_name": "Zap", "x": 140, "y": 236, "size": 32},
+    ]
+    before = [geom(e) for e in els]
+    L.resolve_overlaps(els, [0, 1], L.LayoutReport())
+    check("overlap: icon nested on badge preserved",
+          [geom(e) for e in els] == before)
+
 
 def test_safe_zone():
     els = [{"kind": "text", "x": 20, "y": 10, "width": 400, "height": 80, "text": "T"}]

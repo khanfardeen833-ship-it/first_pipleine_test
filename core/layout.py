@@ -53,6 +53,10 @@ CONTAIN_FRAC = 0.88       # smaller box this-much inside larger => intentional n
 MAX_MOVE = 160            # never shove an element further than this to de-overlap
 BACKDROP_COVERAGE = 0.62  # >= this fraction of canvas + edge touch => backdrop
 BLEED_MIN_AREA = 0.10     # a bleeding element this big is intentional, not a slip
+PANEL_MIN_AREA = 0.05     # a filled shape >= this fraction of canvas is a card /
+                          # background panel that content may legitimately sit on;
+                          # anything smaller is a badge/bar/accent that must NOT
+                          # land on top of a text or icon block
 
 _MEDIA_KINDS = {"image", "chart", "table"}
 
@@ -363,6 +367,14 @@ def _is_frame(el):
         str(el.get("fill", "")).lower() in ("transparent", "none", "")
 
 
+def _is_panel(el, g):
+    """A large filled shape acting as a background card/panel. Content (text,
+    icons) placed on top of it is intentional composition, not a collision."""
+    if el.get("kind") != "shape" or _is_frame(el):
+        return False
+    return (g[2] * g[3]) / (CANVAS_W * CANVAS_H) >= PANEL_MIN_AREA
+
+
 def _layering_ok(a, b, ga, gb):
     """True when the overlap is intentional composition, not a collision."""
     if a.get("opacity", 1) < 0.5 or b.get("opacity", 1) < 0.5:
@@ -373,10 +385,19 @@ def _layering_ok(a, b, ga, gb):
         return True                                   # content over a photo/chart
     if _is_frame(a) or _is_frame(b):
         return True                                   # outline frame around things
-    if "shape" in (ka, kb) and "text" in (ka, kb):
-        return True                                   # text label on a card
-    if "shape" in (ka, kb) and "icon" in (ka, kb):
-        return True                                   # icon badge on a card
+    # Content (text/icon) over a shape is intentional ONLY when the shape is a
+    # genuine card/panel, or the content is (near-)fully nested inside it — a
+    # label within a bar, an icon centred on a badge. A small shape merely
+    # crossing a text/icon block (accent bar over a heading, badge dropped on a
+    # paragraph) is a real collision and must be separated.
+    if "shape" in (ka, kb) and ({"text", "icon"} & {ka, kb}):
+        shape_el, shape_g = (a, ga) if ka == "shape" else (b, gb)
+        other_g = gb if ka == "shape" else ga
+        if _is_panel(shape_el, shape_g):
+            return True                               # content on a card/panel
+        if _contains(shape_g, other_g):
+            return True                               # content nested within shape
+        return False                                  # small shape crossing content
     if _contains(ga, gb) or _contains(gb, ga):
         return True                                   # nested (label in panel)
     return False

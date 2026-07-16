@@ -637,6 +637,68 @@ def _font_is_auto(config: dict) -> bool:
     return str((config or {}).get("fontFamily") or "auto").strip().lower() == "auto"
 
 
+# ---------------------------------------------------------------------------
+# Per-run art-direction variety — so the SAME topic doesn't produce the same
+# palette / background / type every time. Randomised per run and offered to the
+# art director as the LEAD choice, overridable only on a genuine mood clash.
+# (These land in the design-plan user message, which is NOT part of the cached
+# system prefix, so varying them per run is free of cache cost. Layout skeletons
+# already vary via _run_seed; this varies the *theme* the same way.)
+# ---------------------------------------------------------------------------
+_ALL_PALETTES = [
+    "Midnight Executive", "Forest & Moss", "Coral Energy", "Warm Terracotta",
+    "Ocean Gradient", "Charcoal Minimal", "Teal Trust", "Berry & Cream",
+    "Sage Calm", "Cherry Bold", "Noir & Champagne", "Deep Navy & Gold",
+    "Graphite & Electric", "Ivory Editorial",
+]
+
+# Weighted toward restraint (solid fields + photography read premium for most
+# subjects); geometric motif families stay gated to genuinely technical topics
+# and deliberately steer AWAY from the over-used plexus look.
+_BACKGROUND_OPTIONS = [
+    "NO motif — solid palette color fields + photography + generous whitespace",
+    "NO motif — solid palette color fields + photography + generous whitespace",
+    "the ATMOSPHERIC 'aurora' motif only (soft blurred gradient orbs, low-contrast "
+    "ambient light — never a hard geometric pattern)",
+    "the EDITORIAL-LIGHT 'data_horizon' motif on title/section/closing (cream field "
+    "+ gold horizon grid + a large serif title)",
+    "ONE GEOMETRIC motif family — pick a FRESH one this run from hexagons, waves, "
+    "dot_grid, flow, topography, rings or circuit (avoid plexus unless nothing else "
+    "fits) — ONLY if the topic is genuinely technical",
+]
+
+_FONT_PAIRINGS = [
+    "Georgia / Calibri (Editorial / Premium)",
+    "Century Gothic / Calibri Light (Geometric / Design)",
+    "Segoe UI / Segoe UI Light (Tech / Digital)",
+    "Cambria / Calibri (Sharp / Executive)",
+    "Arial Black / Arial (Bold / Impactful)",
+    "Palatino Linotype / Garamond (Elegant / Luxury)",
+    "Trebuchet MS / Calibri Light (Modern / Clean)",
+]
+
+
+def _variety_directive(palette_auto: bool, font_auto: bool) -> str:
+    """A randomised lead palette/background/type suggestion for THIS run, so
+    successive decks on one topic never look identical. Overridable by the art
+    director only on a genuine mood clash."""
+    token = random.randrange(1 << 30)
+    lines = [
+        f"VARIETY DIRECTIVE (run token {token}): decks on the SAME topic must NOT "
+        "look alike run-to-run. For THIS deck, lead with the choices below and "
+        "commit to them deck-wide. Deviate ONLY if one genuinely clashes with the "
+        "subject's mood — and if so, pick a fresh alternative you would not "
+        "normally default to. Do NOT fall back to the over-used dark-navy + "
+        "blue-plexus tech look unless the lead palette below is itself a dark one."
+    ]
+    if palette_auto:
+        lines.append(f"  - Lead palette (use unless it clashes): {random.choice(_ALL_PALETTES)}")
+    lines.append(f"  - Background system this run: {random.choice(_BACKGROUND_OPTIONS)}")
+    if font_auto:
+        lines.append(f"  - Type pairing this run: {random.choice(_FONT_PAIRINGS)}")
+    return "\n".join(lines) + "\n\n"
+
+
 async def _design_plan(client, model, system, outline, archetypes, usage_acc,
                        palette_auto: bool = False, font_auto: bool = False,
                        on_entry=None) -> dict:
@@ -724,6 +786,7 @@ async def _design_plan(client, model, system, outline, archetypes, usage_acc,
         "design as one coherent system, then call emit_design_plan exactly once.\n\n"
         f"SLIDES AND ASSIGNED ARCHETYPES:\n{listing}\n\n"
         f"{palette_clause}"
+        f"{_variety_directive(palette_auto, font_auto)}"
         "For every slide write a precise, executable plan (60-140 words) following its "
         "archetype and the PREMIUM DESIGN REQUIREMENTS: composition skeleton with rough "
         "geometry, the oversized typographic anchor (what + size range), background and "

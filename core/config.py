@@ -18,6 +18,7 @@ PROJECT_DIR  = Path(__file__).parent.parent.resolve()
 SKILLS_DIR   = PROJECT_DIR / "skills"
 CORE_SKILLS  = SKILLS_DIR / "core"
 ELEM_SKILLS  = SKILLS_DIR / "elements"
+LAYOUTS_DIR  = SKILLS_DIR / "layouts"
 SKILLS_INDEX = SKILLS_DIR / "00-index.md"
 WORKSPACE    = PROJECT_DIR / "workspace"
 VALIDATOR    = PROJECT_DIR / "validate.py"
@@ -79,6 +80,17 @@ def preflight():
     if not DECK_BUILDER_API.exists():
         problems.append(f"deck builder API guide not found: {DECK_BUILDER_API}")
 
+    # Layout library (file-based composition archetypes). Deferred import so
+    # core.layouts can import path constants from this module without a cycle.
+    # Fails loudly if any layout .md file is missing a required frontmatter
+    # field (id / name / layout_type / description).
+    try:
+        from core.layouts import load_file_layouts
+        n_layout_files = len(load_file_layouts())
+    except Exception as e:
+        problems.append(f"layout library error: {e}")
+        n_layout_files = 0
+
     if problems:
         print("PRE-FLIGHT FAILED:")
         for p in problems:
@@ -98,6 +110,7 @@ def preflight():
     print(f"  workspace: {WORKSPACE}")
     print(f"  core skills:    {len(CORE_SKILL_FILES)} files")
     print(f"  element skills: {len(ELEMENT_SKILL_FILES)} files")
+    print(f"  layout files:   {n_layout_files} files")
     if is_known:
         print(f"  pricing:   in ${rates['input']}/M  out ${rates['output']}/M  "
               f"cache-write ${rates['cache_write_1h']}/M  cache-read ${rates['cache_read']}/M")

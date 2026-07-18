@@ -31,6 +31,10 @@ from core.config import (
     CORE_SKILLS, ELEM_SKILLS, SKILLS_INDEX,
     CORE_SKILL_FILES, ELEMENT_SKILL_FILES, PROMPTS_DIR, DECK_BUILDER_API,
 )
+from core.layouts import (
+    build_library, archetypes_by_layout, select_layouts,
+    selected_layouts_block, estimate_tokens,
+)
 from core.merger import merge_presentations, write_deck_outputs
 from deck_builder import Deck
 
@@ -364,175 +368,14 @@ LEGIBILITY IS NON-NEGOTIABLE — violating any of these fails the slide:
   larger elements — a clean 15-element slide beats a crammed 25-element one.
 """
 
-# Composition archetypes — rotated so adjacent slides never share a skeleton.
-_ARCHETYPES_BY_LAYOUT = {
-    "title_only": [
-        ("full-bleed hero", "Full-canvas image (filter + dark overlay 55-70) or deep color field, "
-         "kicker chip (outlined rect + letterspaced caption), 58-72pt title on the left 55%, thin "
-         "accent rule, one-line subtitle. Layer it rich: corner frame ticks (4 thin shapes), a "
-         "bottom stat ribbon (3 number+label pairs with thin vertical dividers), a second scrim "
-         "panel for depth, page caption. Optional ghost glyph at 4-6% opacity in empty canvas "
-         "only. Target 16-20 elements."),
-        ("split hero", "Left 45%: color panel with kicker chip, huge title, accent bar, 2-3 "
-         "supporting caption rows with tiny icon badges. Right 55%: full-height image with "
-         "filter and palette-tinted overlay plus a floating stat chip card overlapping the seam. "
-         "Corner ticks or a thin frame inset on the panel side. Target 16-20 elements."),
-        ("editorial masthead", "Magazine-cover feel: an ULTRA-large display title (72-92pt) set "
-         "low-left against generous whitespace, a top metadata rule (letterspaced section / date / "
-         "edition split by thin vertical dividers), a hairline baseline grid (2-3 thin rules), a "
-         "small corner monogram or logotype, and one restrained accent mark. Imagery optional and "
-         "muted. Premium through scale + emptiness. Target 14-18 elements."),
-        ("centered monolith", "Symmetric luxury: title perfectly centered on a deep color field, "
-         "a hairline rectangle framing the composition with inset margins, a small crest/monogram "
-         "or icon above the title, a letterspaced kicker below a short centered accent rule, and a "
-         "one-line subtitle. Corner ticks at all four corners. No photo — restraint reads "
-         "expensive. Target 14-17 elements."),
-        ("circular cutout hero", "Left 45-55%: small logo/kicker, an ULTRA-large two-line title "
-         "(one line in the accent color), a short caption on a small accent bar. Right: a portrait/"
-         "subject photo cropped into a large circle (crop_ratio 'ellipse', width==height) sitting "
-         "inside 1-2 oversized decorative rings/discs (filled palette circles) plus one dotted-dot "
-         "cluster (small ellipses in a grid). Logo top-left. Target 16-20 elements."),
-        ("photo-card + offset panel", "Left ~45%: a solid accent-color offset rectangle panel with "
-         "a photo card floating over it (border_radius 8-12, shadow enabled, filter matched to "
-         "mood), plus a thin down-arrow or corner ticks. Right ~55%: a large 3-line title in "
-         "near-black on a light field, a small color-dot row (3-4 tiny ellipses) as accent, and a "
-         "bottom caption chip on an accent bar. Logo top-right. Target 15-19 elements."),
-        ("dual-photo band", "Deep/dark field. Top: two outlined pill chips (rounded rects + "
-         "letterspaced caption, one with a small arrow icon) as a nav row, a year/edition label "
-         "top-right, and a short 3-4 line paragraph top-right. Center-left: a huge 3-line title "
-         "with ONE line in an accent color. Bottom: a photo band — a small rotated square photo "
-         "(rotation ±3) overlapping a wide landscape photo, both with a subtle filter. Target "
-         "17-22 elements."),
-    ],
-    "bullets": [
-        ("stat band", "Pull the numbers out of the bullets and set them 60-90pt across a band of "
-         "3-4 stat blocks (number + thin divider + 2-line caption each). Side or bottom: one "
-         "supporting image panel or icon-accented insight card."),
-        ("icon card grid", "Each bullet becomes a card: rounded panel (subtle tint or stroke), "
-         "ellipse icon badge, 4-6 word heading, short caption. Asymmetric grid — one card 1.5x "
-         "wider or taller than the others."),
-        ("numbered editorial", "Vertical list with refined number labels 01/02/03 (24-32pt, "
-         "accent color, full opacity) in the left gutter of each row — clear of the row text — "
-         "left accent bars, heading + caption per row. Right 30-40%: full-height image with "
-         "overlay."),
-        ("split feature", "Left 40%: full-height image, palette overlay, one stat or kicker "
-         "overlaid on it. Right 60%: bullets as compact mini-cards with icon badges, staggered "
-         "x-offsets so rows don't form a flat list."),
-        ("editorial index", "Luxury report contents-page feel: each bullet is a full-width row "
-         "with a refined right-aligned number or short value, a hairline rule separating rows, "
-         "a small letterspaced label on the left and a one-line description, generous vertical "
-         "rhythm. A thin accent rule and section kicker up top. Whitespace-forward, no cards."),
-        ("feature + sidebar", "One DOMINANT insight on the left 58-62% — oversized number or "
-         "heading (60-90pt) with a short supporting line and an accent rule — beside a hairline-"
-         "ruled sidebar of 2-3 secondary points (small icon + label + caption). Strong hierarchy: "
-         "one hero idea, the rest deliberately quieter."),
-        ("numbered card rail", "A single horizontal row of 3-4 equal cards on a subtle rounded "
-         "band. Each card: a soft circle icon medallion up top, a small filled number pill "
-         "(01/02/03/04) on the medallion's lower edge, a bold 2-line heading, a short caption. "
-         "Make the LAST card the highlight — a deep accent-filled panel, elevated slightly, white "
-         "text. Title + subheading sit above the band, with a thin accent rule. Target 20-26 "
-         "elements."),
-    ],
-    "two_column": [
-        ("dual panel", "Two contrasting panels (one tinted/filled, one outlined or white) with "
-         "column headers + icon badges; bullets split between them as aligned rows. A vertical "
-         "divider or floating badge bridges the two."),
-        ("versus split", "Hard 50/50 split with opposing background tones, oversized column "
-         "labels, mirrored row layout, central circular 'VS'/theme badge overlapping the seam."),
-        ("indexed ledger", "Editorial two-column ledger: a heavy left label rail (an oversized "
-         "vertical word, large 01/02, or a tall accent bar) anchors the slide; the right side "
-         "stacks the two column contents as rows divided by hairline rules with letterspaced "
-         "headers and aligned values. Restrained, grid-locked, premium."),
-    ],
-    "three_column": [
-        ("three cards", "Three equal cards with top icon badges, bold 3-5 word headings, "
-         "captions, and a footer accent bar each; middle card elevated (taller or tinted) for "
-         "rhythm."),
-        ("offset trio", "Three columns at staggered vertical offsets (a descending or zig-zag "
-         "step), alternating filled vs. outlined treatment, a thin through-line or connecting "
-         "dots linking their badge centers, oversized 01/02/03 numerals behind each heading. "
-         "One column carries a photo strip or tint for weight."),
-        ("ribbon trio", "A continuous top ribbon/band spanning all three columns carries the "
-         "kicker; below it three blocks each lead with a 60-90pt number or icon medallion, a "
-         "3-5 word heading and 2-line caption, divided by thin vertical rules. Optional bottom "
-         "photo strip bleeding off-canvas for energy."),
-        ("pill-header ghost trio", "Three columns, each = a rounded pill header (filled, bold "
-         "centered white label, ~8-14px radius) sitting ABOVE a separate light-gray rounded body "
-         "card holding the caption. Behind each pill an oversized ghost number (01/02/03) at 6-10% "
-         "opacity peeks above the top edge. The MIDDLE column uses the contrast accent color for "
-         "its pill. Title top-left with a thin accent underline and a small arrow-tick motif. "
-         "Target 18-24 elements."),
-        ("tri-circle overlap", "Centered tri-circle overlap (Venn-style) diagram: three large "
-         "translucent filled circles (opacity 55-75) arranged in a triangle so they overlap at the "
-         "center, each carrying a white icon; three text blocks (bold heading + 3-line caption) "
-         "placed around the circles — left, right, and bottom. Title top-left with a small arrow "
-         "motif. Light field. Target 16-20 elements."),
-    ],
-    "timeline": [
-        ("horizontal timeline", "Baseline connector line with circle year-badges, alternating "
-         "labels above/below, accent dot for the 'now' marker, years set 26-34pt bold. "
-         "Optional ghost year at 4-6% opacity in an empty corner, clear of all labels."),
-        ("vertical milestones", "Left rail with connector line and numbered/year badges, each "
-         "milestone a row card to the right; final milestone highlighted with filled accent "
-         "panel."),
-        ("stepped ascent", "Milestones climb left-to-right on an ascending diagonal connector, "
-         "each node a year badge with the step elevated higher than the last (a rising-trajectory "
-         "feel), labels in alternating clean caption blocks, the final 'now' node enlarged with a "
-         "filled accent ring. Thin guide rules underneath for polish."),
-    ],
-    "chart": [
-        ("chart + callout", "Chart on one side (55-65% width), headline insight as a big-stat "
-         "callout card beside it, supporting points as small icon rows under the callout."),
-        ("hero chart", "Chart is the hero — 70-80% width, set on a subtle tinted plot panel with "
-         "a clear title; a horizontal ribbon of 2-3 stat callouts (number + 2-line caption + thin "
-         "dividers) runs along the top or bottom. Minimal side text; let the data dominate."),
-        ("split data story", "Left half: the chart over a tinted panel. Right half: a stacked "
-         "narrative — the single bold takeaway line (28-36pt) on top, then 3 insight rows with "
-         "icon badges and short captions. A vertical accent rule splits the two halves."),
-    ],
-    "quote": [
-        ("editorial quote", "Oversized quotation-mark glyph (180-260pt text or shapes, low "
-         "opacity), 34-44pt italic quote centered-left on a layered offset panel, attribution "
-         "caption with accent rule and a small ellipse initial-badge, muted full-bleed image or "
-         "deep color field behind. Flank with thin frame rules, corner ticks, and 2-3 small "
-         "proof chips (metric + label) along the bottom. Target 15-18 elements."),
-        ("centered statement", "No image — a huge centered 40-56pt statement on a deep color "
-         "field, with generous breathing room. Tiny letterspaced attribution below a short accent "
-         "rule. Minimal flanking marks (a pair of corner ticks or one low-opacity glyph). "
-         "Confidence through restraint and scale."),
-        ("portrait quote", "Left 40%: full-height portrait/subject image with a palette-tinted "
-         "overlay and a small initial-badge. Right 60%: the quote (30-40pt) on a layered offset "
-         "panel, attribution with accent rule, and 2 small proof chips. A floating quotation mark "
-         "overlaps the image seam."),
-    ],
-    "table": [
-        ("framed table", "Table inside a framed panel with a heading row above it, one key-number "
-         "callout chip beside/above the table, accent header treatment."),
-        ("comparison matrix", "Table as a comparison grid: accent-filled header row, zebra row "
-         "tints for scanability, and ONE highlighted winning column or row (stronger accent tint "
-         "+ a small badge/checkmark) so the recommendation pops. Row-label column slightly wider."),
-        ("scorecard grid", "Table read as a scorecard: each data cell pairs its value with a tiny "
-         "icon, rating dot, or tier chip; bold accent header band; a floating key-number callout "
-         "chip overlapping a top corner of the frame. Generous cell padding."),
-    ],
-    "closing": [
-        ("light art-panel close", "Warm light field. Small logo/monogram top-left. A large "
-         "sign-off word (68-96pt, e.g. 'Thanks') set low-left, a one-line contact/CTA caption "
-         "below it on a short accent rule. Right 40-45%: an abstract Bauhaus-style art panel built "
-         "from 10-16 layered geometric shapes (circles, quarter-circles, half-rounds, thin lines) "
-         "in the palette, several at partial opacity for depth. Target 18-26 elements."),
-        ("dark glow close", "Deep near-black field. Logo top-left. A big light sign-off word "
-         "(64-88pt) center-left with a one-line caption below and a thin accent rule under it. "
-         "Right side: a full-bleed moody image bleeding off the right edge (filter 'dark' or "
-         "'dramatic' + a palette overlay in 'screen'/'soft-light' to fake an ambient glow). A few "
-         "corner ticks. Target 14-18 elements."),
-        ("illustration card close", "Light/cream field with a rounded white card on the left "
-         "holding the sign-off word (accent-colored, 60-84pt) and a small CTA row with a circular "
-         "arrow-icon badge. Right ~45%: a subject/product photo on a filled accent-shape backdrop, "
-         "with 2-3 small decorative shapes (half-round, dot cluster) and a thin connecting line "
-         "for energy. Logo top-left. Target 16-22 elements."),
-    ],
-}
+
+# Composition archetypes ("layouts") — one .md file each under skills/layouts/,
+# loaded into the library. _ARCHETYPES_BY_LAYOUT rebuilds the legacy
+# {layout_type: [(name, body), ...]} shape from it so assign_archetypes() and
+# scripts/_showcase_archetypes.py keep working unchanged. build_library(None)
+# has no in-code fallback — every layout must be a file (preflight enforces it).
+_LAYOUT_LIB = build_library(None)
+_ARCHETYPES_BY_LAYOUT = archetypes_by_layout(_LAYOUT_LIB)
 
 
 DESIGN_PLAN_TOOL = {
@@ -649,7 +492,7 @@ _ALL_PALETTES = [
     "Midnight Executive", "Forest & Moss", "Coral Energy", "Warm Terracotta",
     "Ocean Gradient", "Charcoal Minimal", "Teal Trust", "Berry & Cream",
     "Sage Calm", "Cherry Bold", "Noir & Champagne", "Deep Navy & Gold",
-    "Graphite & Electric", "Ivory Editorial",
+    "Graphite & Electric", "Ivory Editorial", "Fresh Greens",
 ]
 
 # Weighted toward restraint (solid fields + photography read premium for most
@@ -1032,8 +875,16 @@ def assign_archetypes(slides: list, seed: int = 0) -> list:
     return out
 
 
-def build_slidegen_system(outline: dict, config: dict) -> list:
-    """System blocks: [stable skills prefix (cached), per-deck brief (cached)]."""
+def build_slidegen_system(outline: dict, config: dict,
+                          selected_layouts: list | None = None) -> list:
+    """System blocks, each cached (ephemeral):
+      1. stable skills prefix        — outline-independent; warmed globally by
+                                       warm_static_prefix(), a cache read every run
+      2. selected layouts (optional) — the Stage-1 picks' full specs, per run
+      3. per-deck design brief       — per run
+
+    Block 1's text is byte-identical to warm_static_prefix()'s, so the global
+    warm still hits. Ordering is most-stable-first so the prefix cache holds."""
     config = config or {}
     if _palette_is_auto(config):
         palette_line = (
@@ -1067,25 +918,43 @@ def build_slidegen_system(outline: dict, config: dict) -> list:
 FULL DECK OUTLINE (for narrative + visual-rhythm context):
 {json.dumps(outline, indent=2)}
 """
-    return [
+    blocks = [
         {
             "type": "text",
             "text": _skills_block() + "\n\n---\n\n" + _SPEC_INSTRUCTIONS,
             "cache_control": {"type": "ephemeral"},
         },
-        {
-            "type": "text",
-            "text": brief,
-            "cache_control": {"type": "ephemeral"},
-        },
     ]
+    if selected_layouts:
+        blocks.append({
+            "type": "text",
+            "text": selected_layouts_block(selected_layouts),
+            "cache_control": {"type": "ephemeral"},
+        })
+    blocks.append({
+        "type": "text",
+        "text": brief,
+        "cache_control": {"type": "ephemeral"},
+    })
+    return blocks
 
 
 def _slide_user_message(outline: dict, slide_entry: dict, slide_number: int,
                         archetype: tuple, neighbors: str,
-                        plan_text: str | None = None) -> str:
+                        plan_text: str | None = None,
+                        layout_in_prefix: bool = False) -> str:
     total = len(outline.get("slides", []))
     name, desc = archetype
+    if layout_in_prefix:
+        # Full spec lives in the cached SELECTED LAYOUTS block — reference it by
+        # name instead of repeating the body in every slide's user message.
+        arch_block = (
+            f"COMPOSITION ARCHETYPE (mandatory skeleton): {name}\n"
+            f"→ Follow the full '{name}' spec under SELECTED LAYOUTS in the "
+            f"system prompt, exactly, as this slide's structural skeleton.\n"
+        )
+    else:
+        arch_block = f"COMPOSITION ARCHETYPE (mandatory skeleton): {name}\n{desc}\n"
     plan_block = ""
     if plan_text:
         plan_block = (
@@ -1095,7 +964,7 @@ def _slide_user_message(outline: dict, slide_entry: dict, slide_number: int,
     return (
         f"Design slide {slide_number} of {total}.\n\n"
         f"OUTLINE ENTRY:\n{json.dumps(slide_entry, indent=2)}\n\n"
-        f"COMPOSITION ARCHETYPE (mandatory skeleton): {name}\n{desc}\n"
+        f"{arch_block}"
         f"{plan_block}\n"
         f"Adjacent slides use: {neighbors} — this slide must read as a clearly "
         f"different structure at a glance.\n\n"
@@ -1454,7 +1323,8 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
                         plan_text: str | None = None, think: bool = True,
                         qa_feedback: str | None = None,
                         retry_log: list | None = None,
-                        phase: str = "generate") -> dict:
+                        phase: str = "generate",
+                        layout_in_prefix: bool = False) -> dict:
     last_err = None
     if think:
         # adaptive thinking needs tool_choice auto; forced tool would disable it
@@ -1470,7 +1340,8 @@ async def _generate_one(client, model, system, outline, slide_entry, slide_numbe
         usage = None  # this attempt's token usage, for retry accounting
         try:
             content = _slide_user_message(outline, slide_entry, slide_number,
-                                          archetype, neighbors, plan_text)
+                                          archetype, neighbors, plan_text,
+                                          layout_in_prefix=layout_in_prefix)
             if qa_feedback:
                 content += f"\n\nVISUAL QA FEEDBACK on the previous version of this slide:\n{qa_feedback}"
             if feedback:
@@ -1581,13 +1452,52 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     if not slides:
         raise ValueError("outline has no slides")
 
-    system = build_slidegen_system(outline, config)
     usage_acc: list = []
     retry_log: list = []   # per-attempt retry metrics (instrumentation only)
-    seed = _run_seed(outline)
-    archetypes = assign_archetypes(slides, seed=seed)
-    print(f"  [slidegen] archetype seed={seed} "
-          f"(set SLIDEGEN_SEED={seed} to reproduce this layout set)")
+
+    # ── Stage 1: layout selection (SLIDEGEN_LAYOUT_SELECT=1, the default) ──
+    # Fires the moment the outline is in hand (callers start warm_static_prefix()
+    # concurrently, so this overlaps the tail of that warm). A cheap Haiku call
+    # picks one library layout per slide from the lightweight index; ONLY those
+    # selected layouts' full specs are inlined into the cached system prefix.
+    # SLIDEGEN_LAYOUT_SELECT=0 restores the legacy deterministic rotation (every
+    # archetype body rides in the per-slide user message) — used for A/B.
+    use_select = os.environ.get("SLIDEGEN_LAYOUT_SELECT", "1").strip().lower() \
+        not in ("0", "false", "no", "off")
+    if use_select:
+        core_rules = (CORE_SKILLS / "10-design-rules.md").read_text(encoding="utf-8")
+        selection, sel_source = await select_layouts(
+            outline, _LAYOUT_LIB, core_rules=core_rules, usage_acc=usage_acc)
+        archetypes = [(_LAYOUT_LIB[selection[i]].name, _LAYOUT_LIB[selection[i]].body)
+                      for i in range(1, len(slides) + 1)]
+        seen: dict = {}   # distinct selected layouts, first-seen order → prefix
+        for i in range(1, len(slides) + 1):
+            seen.setdefault(selection[i], _LAYOUT_LIB[selection[i]])
+        distinct = list(seen.values())
+        system = build_slidegen_system(outline, config, selected_layouts=distinct)
+        sys_tokens = estimate_tokens("".join(b["text"] for b in system))
+        print(f"  [layouts] Stage-1 {sel_source}: {len(distinct)} distinct "
+              f"layout(s) across {len(slides)} slides — "
+              f"{', '.join(l.id for l in distinct)}")
+        for i in range(1, len(slides) + 1):
+            print(f"    slide {i}: {selection[i]}")
+        print(f"  [layouts] assembled system prompt ~{sys_tokens} tokens (est)")
+        if run_dir is not None:
+            Path(run_dir).mkdir(parents=True, exist_ok=True)
+            (Path(run_dir) / "layout_selection.json").write_text(
+                json.dumps({
+                    "source": sel_source,
+                    "per_slide": {str(i): selection[i]
+                                  for i in range(1, len(slides) + 1)},
+                    "distinct": [l.id for l in distinct],
+                    "system_prompt_tokens_est": sys_tokens,
+                }, indent=2), encoding="utf-8")
+    else:
+        seed = _run_seed(outline)
+        archetypes = assign_archetypes(slides, seed=seed)
+        system = build_slidegen_system(outline, config)
+        print(f"  [slidegen] layout selection OFF — archetype seed={seed} "
+              f"(set SLIDEGEN_SEED={seed} to reproduce this layout set)")
     think = mode == "premium"
 
     def neighbors_of(i):  # 1-based slide number
@@ -1619,7 +1529,8 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                                        slides[i - 1], i, usage_acc,
                                        archetypes[i - 1], neighbors_of(i),
                                        plan_text=plan_text, think=False,
-                                       retry_log=retry_log)
+                                       retry_log=retry_log,
+                                       layout_in_prefix=use_select)
 
         def _launch(i: int, plan_text: str | None):
             if 1 <= i <= len(slides) and i not in slide_tasks:
@@ -1652,14 +1563,15 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         first_spec = await _generate_one(client, model, system, outline,
                                          slides[0], 1, usage_acc,
                                          archetypes[0], neighbors_of(1), think=think,
-                                         retry_log=retry_log)
+                                         retry_log=retry_log,
+                                         layout_in_prefix=use_select)
         t_warm = time.time() - t0
         print(f"  [slidegen] slides 2..{len(slides)} in parallel "
               f"(warm-up took {t_warm:.1f}s)")
         rest = await asyncio.gather(*[
             _generate_one(client, model, system, outline, entry, i, usage_acc,
                           archetypes[i-1], neighbors_of(i), think=think,
-                          retry_log=retry_log)
+                          retry_log=retry_log, layout_in_prefix=use_select)
             for i, entry in enumerate(slides[1:], start=2)
         ])
         specs = [first_spec] + list(rest)
@@ -1817,7 +1729,8 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                                       plan_text=plans.get(r["slide_number"]),
                                       think=False,
                                       qa_feedback=format_feedback(r),
-                                      retry_log=retry_log, phase="qa")
+                                      retry_log=retry_log, phase="qa",
+                                      layout_in_prefix=use_select)
                         for r in failing
                     ])
 
@@ -1898,7 +1811,8 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                                           archetypes[n - 1], neighbors_of(n),
                                           plan_text=plans.get(n), think=False,
                                           qa_feedback=format_feedback(best[n]["entry"]),
-                                          retry_log=retry_log, phase="qa")
+                                          retry_log=retry_log, phase="qa",
+                                          layout_in_prefix=use_select)
                             for n in severe])
                         cand_by_n = dict(zip(severe, cand))
                         await _resolve_images(cand, run_dir, config)

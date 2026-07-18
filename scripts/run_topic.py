@@ -80,16 +80,19 @@ async def main():
     print(f"[topic] run dir: {run_dir}")
     print(f"[topic] generating {args.slides}-slide outline "
           f"(warming prompt cache in parallel)...")
-    # warm the static skills prefix while the outline generates, so the art
-    # director call starts from a cache read instead of a fresh prefill
-    outline, _ = await asyncio.gather(
-        generate_outline(args.topic, args.slides, run_dir=run_dir),
-        warm_static_prefix(),
-    )
+    # Warm the static skills prefix as a background task while the outline
+    # generates AND while Stage-1 layout selection runs — so the art director
+    # call starts from a cache read. Stage-1 selection (inside
+    # generate_deck_per_slide) needs the outline, so it fires the moment the
+    # outline returns and overlaps the tail of this warm.
+    warm_task = asyncio.create_task(warm_static_prefix())
+    outline = await generate_outline(args.topic, args.slides, run_dir=run_dir)
     print_outline(outline)
 
     print(f"[topic] palette={config['palette']!r}  tone={config['tone']!r}")
     deck, stats = await generate_deck_per_slide(outline, config, run_dir=run_dir)
+    if not warm_task.done():   # normally finished long ago; don't leak the task
+        warm_task.cancel()
     print(f"[topic] stats: {json.dumps(stats, indent=2)}")
 
     merged = run_dir / "merged_deck.json"

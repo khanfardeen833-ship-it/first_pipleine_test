@@ -1,7 +1,33 @@
 # Skills Index
 
-Read this file first on every run. Use it to decide which `elements/` skills you need.
-Always read all files in `core/` before doing anything else — no exceptions.
+> **How skills reach the model (current pipeline — `core/prompt.py`, `core/slidegen.py`).**
+> These files are **not** read on demand via a Read tool. The `slidegen` engine
+> injects a compact pack of `core/` + `elements/` skills directly into a cached
+> system prefix at generation time (`core/slidegen.py:_skills_block`); the legacy
+> `agent` engine inlines the full set (`core/prompt.py`). Editing a skill file
+> changes what the model generates. The "read this first / read only what you
+> need" language below is historical and does not describe runtime behavior.
+
+## Layouts (composition archetypes) — two-stage selection
+
+Layouts live one-per-file under **`layouts/<layout_type>/*.md`** with frontmatter
+(`id`, `name`, `layout_type`, `order`, `description`). They are loaded by
+`core/layouts.py` and used in two stages, so the library can grow to 100+ layouts
+without bloating any prompt:
+
+1. **Stage 1 — selection.** A cheap model is shown only the lightweight **index**
+   (each layout's `id` + one-line `description`, ~20 tokens each) plus the core
+   design rules, and returns one `layout_id` per slide (`select_layouts`). Unknown
+   ids or an incomplete result fall back to the deterministic seed=0 set.
+2. **Stage 2 — generation.** Only the **selected** layouts' full specs are inlined
+   into the cached slidegen system prefix (`SELECTED LAYOUTS`); every parallel
+   slide of the run shares that one prefix. Each slide's request names its layout
+   and points at that spec.
+
+Layout types not yet migrated to files are served from the legacy in-code
+archetype dict in `core/slidegen.py`; their index description is auto-derived from
+the spec's first sentence. Toggle the whole mechanism with
+`SLIDEGEN_LAYOUT_SELECT=0` (restores legacy deterministic rotation).
 
 ---
 

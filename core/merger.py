@@ -171,8 +171,18 @@ def write_deck_outputs(deck: dict, run_dir) -> None:
     editor's Import JSON). Keeping them together means the editor file never
     goes stale relative to the merged deck."""
     from pathlib import Path
+    from core.layout_fix import normalize_layout
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Deterministic geometry cleanup (icon-to-badge snap, panel-grow) before the
+    # deck is persisted — runs ahead of validate.py and the visual-QA loop.
+    deck, layout_fixes = normalize_layout(deck)
+    if layout_fixes:
+        print(f"  layout_fix: {len(layout_fixes)} geometry fix(es)")
+        for f in layout_fixes:
+            print(f"    - {f}")
+
     (run_dir / "merged_deck.json").write_text(
         json.dumps(deck, indent=2), encoding="utf-8")
     (run_dir / "editor_deck.json").write_text(

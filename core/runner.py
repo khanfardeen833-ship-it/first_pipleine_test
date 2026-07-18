@@ -394,6 +394,13 @@ async def run_deck_pipeline(outline_id: str) -> None:
             await storage.save_deck_to_outline(outline_id, deck, mongo_summary, deck_id=deck_id)
             print(f"[pipeline] done  decks/{deck_id}  outlines/{outline_id} status=done")
 
+        # Dump the final deck JSON locally, next to the outline (keyed on presentation_id)
+        try:
+            from core.local_dump import dump_deck
+            dump_deck(presentation_id, deck)
+        except Exception as dump_err:
+            print(f"[pipeline] local deck dump failed (non-fatal): {dump_err}")
+
         # Generate .pptx (non-fatal — a failure here doesn't break the pipeline)
         try:
             from core.pptx_exporter import export_slides_to_pptx

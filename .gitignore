@@ -10,6 +10,7 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+~$*            # Office temp lock files (created while a .docx is open)
 workspace/
 enhance-history/
 .pytest_cache/

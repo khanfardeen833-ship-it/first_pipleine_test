@@ -56,6 +56,35 @@ One focal idea per slide — if you need to say two things, use two slides.
 - Top section title: y=48
 - Content below a title: title_y + title_height + 24
 
+## No-overlap rules (hard — the #1 source of broken slides)
+
+Every element is absolutely positioned; nothing reflows. Two element boxes must
+**never overlap** unless the overlap is deliberate design (text on a full-bleed
+background image, a "VS" badge sitting on a divider). Before you place an
+element, compute its box `[x, y, x+width, y+height]` and check it against every
+box already on the slide.
+
+- **Kicker/eyebrow above title.** A small caption above a title (e.g. a section
+  label like "DEMOCRATS") must sit *fully above* the title: `caption.y +
+  caption.height + 8 ≤ title.y`. Never give the caption and the title the same
+  `y` — that stacks them on top of each other.
+- **Image + text in a column.** Body text must go **beside or below** its image,
+  never on top of it. If the image is `128×128` at `x=88, y=272` (bottom 400),
+  the paragraph starts at `y ≥ 408` (below) or `x ≥ image.x + image.width + 24`
+  (beside) — its box must not intersect the image box. This does **not** apply to
+  a full-bleed background image (`isBackground: true`), where text over the image
+  is intended.
+- **Titles stay in their column.** A title/heading in a two-column layout must
+  not extend past the column divider into the other column. Full-width titles are
+  fine only when the row below them is also full-width (no second-column content
+  at the same `y`).
+- **Minimum gaps between boxes:** ≥ 24px vertical between stacked text blocks,
+  ≥ 16px around an icon/badge, ≥ 24px between a text box and an image. If content
+  doesn't fit with these gaps, cut copy or split the slide — do not overlap.
+- **Align two columns.** Left and right columns should share top anchors: the
+  two headings at the same `y`, the two portraits at the same `y`, the two body
+  paragraphs at the same `y`. Mismatched column baselines read as broken.
+
 ## Element sizing guidelines
 
 | Element  | Typical size        |

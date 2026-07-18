@@ -1,0 +1,125 @@
+{
+  "title": "South Africa Jungle Visit: Wildlife & Adventure",
+  "subtitle": "Discover the untamed beauty and biodiversity of South Africa's most iconic ecosystems.",
+  "slides": [
+    {
+      "slide_number": 1,
+      "title": "Venture Into Africa's Last Wilderness",
+      "subtitle": null,
+      "layout": "title_only",
+      "bullets": [],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 2,
+      "title": "Trend 1: Sustainable Eco-Tourism Growth",
+      "subtitle": "Conservation-focused travel reshaping South African tourism",
+      "layout": "two_column",
+      "bullets": [
+        "2023: 15.7 million international arrivals to South Africa overall.",
+        "Eco-lodge bookings up 34% year-over-year across Kruger region.",
+        "Travelers prioritize wildlife conservation impact over luxury amenities.",
+        "Airbnb and ToursByLocals enabling remote-community economic participation."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 3,
+      "title": "Trend 2: Big Five Safari Demand Surge",
+      "subtitle": null,
+      "layout": "chart",
+      "bullets": [
+        "Big Five sightings: lions, leopards, rhinos, elephants, buffalo.",
+        "Example: Kruger National Park recorded 2.8M annual visitors in 2022.",
+        "Luxury operators like Singita commanding $10,000+ per night rates.",
+        "Chinese and Indian tourists now 18% of eco-tourism market share."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 4,
+      "title": "Trend 3: Technology Meets Wildlife Tracking",
+      "subtitle": null,
+      "layout": "three_column",
+      "bullets": [
+        "Conservation drones & AI identify poaching activity in real-time.",
+        "Thermal imaging and satellite data protect endangered rhino populations.",
+        "Mobile apps connect visitors with local guides and real-time sightings."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 5,
+      "title": "Key Wildlife & Biodiversity Hotspots",
+      "subtitle": "Where to experience Africa's greatest concentration of species",
+      "layout": "bullets",
+      "bullets": [
+        "Kruger National Park: 145 mammal species, 500+ bird varieties.",
+        "Garden Route: coastal forests, fynbos vegetation, endemic species.",
+        "Okavango Delta (Botswana border): Africa's largest inland delta ecosystem.",
+        "Note: Best safari season is May–September (dry season visibility)."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 6,
+      "title": "Visitor Safety & Conservation Ethics",
+      "subtitle": null,
+      "layout": "two_column",
+      "bullets": [
+        "Always maintain 20+ meters from wildlife; never approach on foot.",
+        "Support certified operators: World Wildlife Fund Partner badge verification.",
+        "80% of lodge fees reinvest directly into anti-poaching enforcement.",
+        "Respect tribal territories: Maasai and San communities own ancestral lands."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 7,
+      "title": "Planning Your Jungle Expedition: Timeline",
+      "subtitle": null,
+      "layout": "timeline",
+      "bullets": [
+        "3-6 Months Prior: Book accommodations and secure visas.",
+        "1-2 Months Before: Purchase travel insurance and vaccinations.",
+        "2 Weeks Out: Confirm guide assignments and daily itinerary.",
+        "Arrival: Settle into lodge, brief on wildlife safety protocols."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 8,
+      "title": "Expert Insight: Why South Africa Stands Apart",
+      "subtitle": null,
+      "layout": "quote",
+      "bullets": [
+        "\"South Africa offers the world's most accessible big five experience with world-class infrastructure and commitment to conservation.\"",
+        "— David Varty, CEO, Conservation Travel International"
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 9,
+      "title": "Practical Essentials for Your Visit",
+      "subtitle": null,
+      "layout": "bullets",
+      "bullets": [
+        "Budget: $2,500–$8,000 per person for 5-7 day safari packages.",
+        "Climate: Subtropical; pack lightweight layers and high-SPF sunscreen.",
+        "Currency: South African Rand; USD and EUR widely accepted.",
+        "Health: Malaria prophylaxis recommended; yellow fever vaccine advised."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 10,
+      "title": "Ready to Explore Africa's Heart",
+      "subtitle": null,
+      "layout": "closing",
+      "bullets": [
+        "Book your conservation journey today—every visit supports wildlife protection."
+      ],
+      "bg": "light"
+    }
+  ]
+}

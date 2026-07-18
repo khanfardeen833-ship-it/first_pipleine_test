@@ -1,0 +1,153 @@
+{
+  "title": "MBBS in India: Education to Practice",
+  "subtitle": "Understanding the pathway, challenges, and opportunities in Indian medical education.",
+  "slides": [
+    {
+      "slide_number": 1,
+      "title": "MBBS in India: From Classroom to Clinic",
+      "subtitle": null,
+      "layout": "title_only",
+      "bullets": [],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 2,
+      "title": "What is MBBS in India?",
+      "subtitle": "Bachelor of Medicine, Bachelor of Surgery",
+      "layout": "bullets",
+      "bullets": [
+        "5.5-year undergraduate medical degree plus 1-year internship.",
+        "Governed by Medical Council of India (MCI) and NMC regulations.",
+        "Entry via NEET-UG: 18-lakh+ candidates compete annually.",
+        "Produces 100,000+ doctors annually across 560+ institutions."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 3,
+      "title": "Timeline: MBBS Journey in India",
+      "subtitle": "Key milestones from admission to licensing",
+      "layout": "timeline",
+      "bullets": [
+        "Year 1-2: Pre-clinical sciences—anatomy, physiology, biochemistry.",
+        "Year 3-4: Paraclinical and clinical training in major specialties.",
+        "Year 5: Internship with rotations across departments and hospitals.",
+        "Post-MBBS: FMGE exam required for international practice; NEET-PG for specialization."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 4,
+      "title": "Admission Requirements & NEET-UG",
+      "subtitle": null,
+      "layout": "two_column",
+      "bullets": [
+        "12th standard pass with Physics, Chemistry, Biology (PCB).",
+        "Minimum 50% aggregate; SC/ST/OBC: 40% marks required.",
+        "NEET-UG 2024: 720 marks out of 720; cutoff ~164-171.",
+        "Merit-based: 85% government seats; 15% deemed/private institution seats."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 5,
+      "title": "Top Medical Colleges in India",
+      "subtitle": "NIRF Rankings 2024",
+      "layout": "three_column",
+      "bullets": [
+        "AIIMS Delhi: gold standard; research-led, 5% acceptance rate.",
+        "CMC Vellore: oldest private medical college; strong clinical training.",
+        "Maulana Azad Medical College: central university; Delhi-based; highly competitive."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 6,
+      "title": "Key Challenges in Indian MBBS",
+      "subtitle": null,
+      "layout": "bullets",
+      "bullets": [
+        "Infrastructure gap: overcrowded classrooms; limited lab equipment in tier-2/3 colleges.",
+        "High student-patient ratio hampering hands-on clinical experience for many.",
+        "2024: NMC revised curriculum to reduce outdated content; still evolving.",
+        "Exam-centric learning: rote memorization over critical thinking skills."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 7,
+      "title": "Trend 1: Digital Health & Telemedicine Training",
+      "subtitle": "Integration into MBBS curriculum",
+      "layout": "chart",
+      "bullets": [
+        "2023-2024: Major AIIMS and government colleges added telemedicine modules.",
+        "Example: AIIMS Delhi now conducts virtual OPD consultations with students observing.",
+        "NMC guidelines mandate digital literacy and e-health literacy for graduates.",
+        "Indian telehealth market growing at 45% CAGR; demand for trained doctors."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 8,
+      "title": "Trend 2: Emphasis on Affordable Healthcare Access",
+      "subtitle": null,
+      "layout": "bullets",
+      "bullets": [
+        "2024: MBBS syllabus now focuses on rural health and primary care.",
+        "Ayushman Bharat scheme requires 50% students to work in underserved areas.",
+        "Public health module strengthened in all government medical colleges.",
+        "Key insight: producing doctors for India's 900M+ population gaps."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 9,
+      "title": "Post-MBBS Pathways & Licensing",
+      "subtitle": null,
+      "layout": "two_column",
+      "bullets": [
+        "NEET-PG: Gateway to 3-year specialization programs across all fields.",
+        "FMGE (Screening Test): mandatory for overseas practice; ~30% pass rate.",
+        "Clinical Practice Registration: state medical council registers doctors after internship.",
+        "2024: NEET-PG seats expanded to 47,000+ across recognized institutes."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 10,
+      "title": "Career Outcomes & Employment Trends",
+      "subtitle": null,
+      "layout": "chart",
+      "bullets": [
+        "2023 data: 60% pursue specialization; 25% enter government service.",
+        "Private practice and corporate hospitals absorb 40% of graduates.",
+        "Brain drain: 8-10% migrate annually to USA, UK, Australia, Canada.",
+        "Emerging: startups in health tech hiring doctors for product and research roles."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 11,
+      "title": "Future of MBBS: 2025-2030 Outlook",
+      "subtitle": null,
+      "layout": "bullets",
+      "bullets": [
+        "NMC planning AI-integrated diagnostics and clinical decision support training.",
+        "Competency-based education replacing traditional exams in progressive colleges.",
+        "Expected: 40% increase in medical seats by 2030 nationwide.",
+        "Note: Quality assurance remains key challenge as enrollment expands."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 12,
+      "title": "Ready to Pursue MBBS?",
+      "subtitle": null,
+      "layout": "closing",
+      "bullets": [
+        "Start NEET preparation early; focus on conceptual clarity over memorization."
+      ],
+      "bg": "light"
+    }
+  ]
+}

@@ -1,0 +1,295 @@
+Editor Feature
+
+ 
+ 
+Symbol	Element	What it is
+📝 Text	Text box	Words you type on the slide
+🔷 Shape	Shape	Rectangles, circles, arrows, lines, stars, etc.
+🖼️ Image	Image	A photo or picture you upload or pick
+🎞️ GIF	Giphy / GIF	A moving picture from the GIPHY search
+⭐ Icon	Icon	A small symbol (from Lucide, Phosphor, Material libraries)
+🔗 Embed	Embed	A YouTube/Vimeo/Loom video, a link card, or a Mermaid diagram
+ 
+Good to know: The editor also has Charts and Tables, but you
+didn't ask about those, so they are left out of the element tables. They are
+mentioned only where a common action (like delete or layering) works on them too.
+ 
+Good to know about GIFs: A GIF is treated as a special kind of image.
+So a GIF can do everything an image can do (crop, filter, border, shadow,
+flip, rotate…). The only things unique to GIFs are how you find and add them
+(the GIPHY search). That's why the GIF column mostly mirrors the Image column.
+ 
+
+ 
+TABLE 1 — Common features (work across many elements)
+These are the everyday actions: select, move, resize, rotate, layer, copy, etc.
+ 
+Feature	What it does (plain English)	📝 Text	🔷 Shape	🖼️ Image	🎞️ GIF	⭐ Icon	🔗 Embed
+Select	Click once to pick an element	✅	✅	✅	✅	✅	✅
+Multi-select (Shift+Click)	Hold Shift and click to pick several at once	✅	✅	✅	✅	✅	✅
+Multi-select (drag a box)	Drag a rectangle over empty canvas to grab everything inside	✅	✅	✅	✅	✅	✅
+Select all (Ctrl/Cmd+A)	Pick every unlocked element on the slide	✅	✅	✅	✅	✅	✅
+Move / drag	Drag to reposition	✅	✅	✅	✅	✅	✅
+Nudge with arrow keys	Tap arrows to move 1px (Shift+arrow = 10px)	✅	✅	✅	✅	✅	✅
+Resize (corner handles)	Drag a corner to scale	✅	✅	✅	✅	✅	✅
+Resize (edge handles)	Drag a side to stretch width or height	✅	✅	✅	✅	✅	✅
+Keep proportions (Shift while resizing)	Hold Shift so it doesn't distort	✅	✅	✅	✅	✅	✅
+Rotate	Drag the round handle to spin it	✅	✅	✅	✅	✅	✅
+Bring to front	Put on top of everything	✅	✅	✅	✅	✅	✅
+Send to back	Put behind everything	✅	✅	✅	✅	✅	✅
+Bring forward (1 step)	Move up one layer	✅	✅	✅	✅	✅	✅
+Send backward (1 step)	Move down one layer	✅	✅	✅	✅	✅	✅
+Group / Ungroup	Lock several together so they move as one	✅	✅	✅	✅	✅	✅
+Copy / Cut / Paste	Standard clipboard actions	✅	✅	✅	✅	✅	✅
+Duplicate	Make an instant copy (+20px offset)	✅	✅	✅	✅	✅	✅
+Duplicate to other slides	Copy onto this / selected / all slides	✅	✅	✅	✅	✅	✅
+Delete	Remove from slide	✅	✅	✅	✅	✅	✅
+Undo / Redo	Step back / forward through changes	✅	✅	✅	✅	✅	✅
+Lock / Unlock	Freeze so it can't be moved by accident	✅	✅	✅	✅	✅	✅
+Opacity	Make see-through (0–100%)	✅	✅	✅	✅	✅	✅
+Align (left/center/right/top/middle/bottom)	Line up 2+ elements	✅	✅	✅	✅	✅	✅
+Distribute (even spacing)	Space 3+ elements evenly	✅	✅	✅	✅	✅	✅
+Right-click menu	Context menu of actions	✅	✅	✅	✅	✅	✅
+Exact position (X / Y)	Type precise coordinates	✅	✅	✅	✅	✅	✅
+Exact size (W / H)	Type precise width / height	✅	✅	✅	✅	✅	✅
+Hyperlink	Make it clickable (URL / email / jump to slide)	✅	✅*	✅	✅		—
+Copy-style / Alt+drag clone	Hold Alt and drag to duplicate in one move	✅	✅	✅	✅	✅	✅
+ 
+* Shapes carry links via their inner text.
+— Embed already is a link/video, so a separate hyperlink isn't offered.
+ 
+
+ 
+TABLE 2 — Text-only features
+Things you can only do to a text box.
+ 
+Feature	What it does
+Font family	Pick the typeface (built-in or your own uploaded font)
+Font size	1–900px
+Bold / Italic / Underline / Strikethrough	The four classic styles
+Text color	Color of the letters
+Highlight color	Colored background behind selected words
+Text alignment	Left / center / right / justify
+Line height	Space between lines
+Letter spacing	Space between letters
+Paragraph spacing (before / after)	Space above and below paragraphs
+Bullet list	Dotted list
+Numbered list	1, 2, 3 list
+List indent / outdent	Nest list items deeper or shallower
+Text case	UPPERCASE / lowercase / Capitalize
+Link	URL, email, jump-to-slide, or embed
+Text type preset	One-click Title / H1–H5 / Paragraph styles (sets size, weight, etc.)
+Aspect-ratio lock	Lock the box width/height ratio while resizing
+Type-to-edit	Select a text box and just start typing to edit it
+ 
+
+ 
+TABLE 3 — Shape-only features
+Things you can only do to a shape.
+ 
+Feature	What it does
+Fill color	Solid color inside the shape
+Fill gradient	Linear / radial / conic color blend
+Fill image	Put a picture inside the shape (with scale, offset, fit)
+Border / stroke color	Color of the outline
+Border / stroke width	Thickness of the outline
+Border / stroke style	Solid, dashed, dotted
+Line end caps	Arrow / dot / dash ends (for line shapes)
+Corner radius (all 4 corners)	Round the corners equally
+Corner radius (per corner)	Round each corner separately
+Geometry handles	Shape-specific adjusters (arrowhead size, star points, etc.)
+Blur	Soften the shape
+Shadow	Drop shadow
+Text inside shape	Type rich text inside, with full text formatting
+Step-connector controls	Routing / step count / mid-point for connector lines
+ 
+
+ 
+TABLE 4 — Image-only features (the "uncommon" ones)
+This is the special table you asked for — features that exist only for images
+(and therefore also for GIFs, since a GIF is an image). These go beyond the basic
+move/resize and are what make the image editor powerful.
+ 
+Feature	What it does
+Upload / replace	Add your own image, or swap one for another
+Crop	Trim the image with drag handles
+Crop ratios	Presets: free, 1:1, 4:3, 3:4, 16:9, 9:16, ellipse, circle
+Focus point	Choose which part stays visible when cropped to "cover"
+Object fit	cover / contain / fill / none
+Filters (16 presets)	One-click looks — see the filter list below
+Blur	Soften the image (0–20px)
+Color overlay	Tint the image a color
+Overlay opacity	How strong the tint is (0–100%, default 40%)
+Overlay blend mode	8 modes: normal, multiply, screen, overlay, soft-light, hard-light, color, luminosity
+Corner radius	Round the image corners (0–100px)
+Standard border	Solid border with width (1–30px) + color
+Special border styles (6)	Inner-shadow, thin-frame, double-frame, film, polaroid, rounded-white
+Shadow	Drop shadow with angle, distance, blur, size, color, opacity
+Flip horizontal	Mirror left↔right
+Flip vertical	Mirror top↔bottom
+Reset all styles	One click back to defaults
+Alt text	Description for accessibility
+Set as slide background	Make the image fill the whole slide as the backdrop
+SVG recolor	For SVG images: change up to 20 individual colors
+ 
+The 16 image filters
+ 
+Group	Filter	The look
+Monochrome	None	No filter
+	Noir	Black & white, high contrast, darker
+	Gray	Plain black & white
+	Sepia	Old brown-tone photo
+Color grading	Vintage	Faded, slightly warm
+	Warm	Warm orange tint
+	Cool	Cool blue tint
+	Cross	Punchy, warm, high-saturation
+Exposure	Bright	Lighter and punchier
+	Dark	Darker, more contrast
+	Faded	Light and washed-out
+	Matte	Flat, muted colors
+Drama	Dynamic	High contrast + saturation
+	Vibrant	Extreme saturation
+	Dramatic	Very high contrast, darker
+	Soft	Gentle, lifted colors
+ 
+Adjustable ranges (for the sliders)
+ 
+Slider	Min	Max	Default	Step
+Blur	0	20 px	0	0.5
+Overlay opacity	0	100%	40%	1
+Shadow angle	0	360°	135°	5
+Shadow distance	0	200 px	8	1
+Shadow blur	0	80 px	6–12	1
+Shadow size	0	80 px	0	1
+Shadow opacity	0	100%	25–40%	1
+Border width	1	30 px	4	1
+Corner radius	0	100 px	0	1
+Opacity	0	100%	100%	1
+ 
+
+ 
+TABLE 5 — Icon-only features
+ 
+Feature	What it does
+Icon library	Choose source: Lucide, Phosphor, or Material
+Icon name	Pick which icon
+Icon color	Recolor the icon
+Icon weight (Phosphor only)	thin / light / regular / bold / fill / duotone
+ 
+
+ 
+TABLE 6 — Embed-only features
+ 
+Feature	What it does
+Embed type	YouTube / Vimeo / Loom / Mermaid / Link
+URL or video ID	Where the content comes from
+Title	Caption shown on the preview
+Thumbnail	Preview image (auto-fetched)
+Mermaid code	For Mermaid type: the diagram source code
+ 
+
+ 
+TABLE 7 — GIF (Giphy) features
+A GIF reuses every Image feature (Table 1 + Table 4). These extras are about
+finding and adding GIFs:
+ 
+Feature	What it does
+GIPHY search	Search animated GIFs by keyword
+Trending GIFs	Shows popular GIFs when you open the panel
+Infinite scroll	Loads more as you scroll (up to 500)
+Animated on the slide	The GIF plays automatically
+Original size captured	Keeps the GIF's real dimensions
+"Powered by GIPHY" credit	Attribution shown in the panel
+ 
+
+ 
+TABLE 8 — Canvas features (the workspace itself)
+Not tied to one element — these are about the whole editing area.
+ 
+Feature	What it does
+Zoom in / out	25% up to 300%
+Zoom presets	Jump to 25 / 50 / 75 / 100 / 200 / 300%
+Fit to slide	Snap back to 100%
+Grid vs. normal view	See all slides as a grid, or one at a time
+Rulers (top + side)	Measurement rulers; drag from them to make guides
+Smart alignment guides	Pink snap-lines while you drag (Figma-style)
+Spacing guides	Shows the gap size between elements
+Safe-margin guides	Dashed lines marking safe edges
+Custom guides	Your own draggable reference lines
+Layout grid overlay	Columns / rows / margins grid
+Distance measurement	Alt-hover shows distance between two elements
+Dimension tooltip	Live W×H while resizing, X:Y while dragging, R° while rotating
+Slide background	Color, opacity, image, pattern, focus point, scale
+ 
+
+ 
+TABLE 9 — Slide thumbnail panel (left side)
+The strip of mini-slides down the left.
+ 
+Feature	What it does
+Thumbnail previews	Live mini-version of each slide
+Grid or list view	Two ways to show the slides
+Add slide	Blank, from a template, or AI-generated
+Duplicate slide(s)	Clone one or many
+Delete slide(s)	Remove one or many
+Reorder by drag	Drag slides to reorder (single or multiple)
+Select slides	Click; Shift+Click = range; Ctrl/Cmd+Click = toggle
+Navigate with arrow keys	Up/Down to move between slides
+Move up / down	Shift a slide's position
+Hide / show slide	Skip a slide during the show
+Status badge	To-Do / In-Progress / Done markers
+Comment badge	Shows comment count
+Animation badge	Marks slides with animations/transitions
+AI badge	Marks AI-generated slides
+Slide title	Auto-pulled from the first text box
+AI update slide	Regenerate a slide via Gemini or Claude
+Smart-diagram export	Export slide(s) as diagram steps
+ 
+
+ 
+TABLE 10 — Layers panel
+The list that shows every element stacked in order.
+ 
+Feature	What it does
+Layer list	Every element shown in stacking order
+Thumbnails & type icons	Preview + a letter for the element kind
+Select from list	Click a row to select on canvas (Shift+Click for many)
+Group badges	"G1", "G2"… labels for grouped items
+Front / back / forward / backward	Reorder stacking from the panel
+Drag to reorder	Drag rows to restack (single or block)
+Background image controls	Set / replace / detach / delete the background
+Collapse panel	Hide / show the layer list
+Element counter	"N elements" in the header
+ 
+
+ 
+Keyboard shortcuts
+ 
+Action	Mac	Windows
+Copy	⌘C	Ctrl+C
+Cut	⌘X	Ctrl+X
+Paste	⌘V	Ctrl+V
+Duplicate	⌘D	Ctrl+D
+Undo	⌘Z	Ctrl+Z
+Redo	⌘⇧Z / ⌘Y	Ctrl+Shift+Z / Ctrl+Y
+Group	⌘G	Ctrl+G
+Ungroup	⌘⇧G	Ctrl+Shift+G
+Select all	⌘A	Ctrl+A
+Delete	⌫	Del / Backspace
+Bring forward	⌘]	Ctrl+]
+Send backward	⌘[	Ctrl+[
+Bring to front	⌘⌥]	Ctrl+Alt+]
+Send to back	⌘⌥[	Ctrl+Alt+[
+Bold	⌘B	Ctrl+B
+Italic	⌘I	Ctrl+I
+Underline	⌘U	Ctrl+U
+Strikethrough	⌘⇧X	Ctrl+Shift+X
+Toggle case	⌘⇧U	Ctrl+Shift+U
+Save	⌘S	Ctrl+S
+Nudge 1px	Arrow keys	Arrow keys
+Nudge 10px	Shift+Arrow	Shift+Arrow
+New text box	T	T
+Deselect / cancel	Esc	Esc
+ 
+
+ 

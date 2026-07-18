@@ -1,0 +1,152 @@
+{
+  "title": "American Politics: Landscape, Trends, and 2024 Shift",
+  "subtitle": "Understanding the evolving political landscape, key players, and emerging trends shaping American democracy.",
+  "slides": [
+    {
+      "slide_number": 1,
+      "title": "American Politics in a Divided Era",
+      "subtitle": null,
+      "layout": "title_only",
+      "bullets": [],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 2,
+      "title": "Trend 1: The Rise of Populist Movements",
+      "subtitle": "Grassroots energy reshaping both major parties",
+      "layout": "two_column",
+      "bullets": [
+        "2016–2024: Trump-backed candidates dominating Republican primaries nationwide.",
+        "Example: 91 indictments across four jurisdictions; core base remains intensely loyal.",
+        "Democratic side: Progressive caucus pushing party left on healthcare, climate, and economics.",
+        "Note: Populist messaging appeals to voters feeling economically left behind by globalization."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 3,
+      "title": "Trend 2: Partisan Polarization at Historic Peaks",
+      "subtitle": null,
+      "layout": "chart",
+      "bullets": [
+        "58% of Republicans and 55% of Democrats view the other party as 'threat' (2024 Pew).",
+        "Congressional gridlock: 118th Congress passed fewest bills since 1970s.",
+        "Social media algorithm amplification accelerating echo chambers and tribal identity.",
+        "Cross-party marriage and friendship rates declining; homogeneous social circles increasing."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 4,
+      "title": "2024 Election: Historic Dynamics Unfold",
+      "subtitle": "Biden exit, Harris surge, and Trump's legal battles",
+      "layout": "timeline",
+      "bullets": [
+        "June 2024: Biden withdraws after poor debate performance; Harris emerges as nominee.",
+        "July–August 2024: Harris rallies Democrats; enthusiasm metrics surge above pre-debate levels.",
+        "September 2024: Trump convicted on 34 counts in New York; appeals ongoing.",
+        "November 2024: Trump wins presidency; Republicans control Senate; Democrats retain House."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 5,
+      "title": "Trend 3: Voter Registration and Turnout Shifts",
+      "subtitle": null,
+      "layout": "three_column",
+      "bullets": [
+        "2024: 68% voter turnout (highest since 1900); mail-in ballots exceed 35% of votes.",
+        "Gen Z voters breaking youth turnout records; climate and abortion key motivators.",
+        "Latino voter coalescence: 38% Republican (2024) vs. 31% (2020); gains in Arizona, Nevada."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 6,
+      "title": "The Abortion Issue: Reshaping State Politics",
+      "subtitle": "Post-Dobbs decision creating powerful electoral force",
+      "layout": "two_column",
+      "bullets": [
+        "June 2022: Supreme Court overturns Roe v. Wade; 21 states ban abortion immediately.",
+        "2024: 10 states vote to restore or protect abortion rights via ballot measures.",
+        "Example: Kansas (2022), Ohio (2023), Michigan (2024) all reject abortion restrictions.",
+        "Democratic messaging pivot: Abortion access now top-five issue for suburban women voters."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 7,
+      "title": "Tech and Media's Political Influence Grows",
+      "subtitle": null,
+      "layout": "bullets",
+      "bullets": [
+        "Elon Musk's X algorithm amplifying conservative voices; blue-check removal causing advertiser exodus.",
+        "TikTok becoming dominant news source for Gen Z; algorithm favors anti-establishment content.",
+        "Fox News, MSNBC, CNN: primetime segments increasingly siloed by partisan narratives.",
+        "Misinformation spread: 64% of Americans cannot distinguish AI-generated from real images."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 8,
+      "title": "Trend 4: Institutional Erosion and MAGA Influence",
+      "subtitle": "Republican Party transformation under Trump leadership",
+      "layout": "chart",
+      "bullets": [
+        "2024: 83% of House Republicans voted against certifying elections (Jan 6 aftermath).",
+        "Trump loyalists controlling RNC, state parties, and election boards across Midwest, South.",
+        "Key insight: Traditional conservative institutions (NRO, Lincoln Project) marginalized; populist voices ascendant.",
+        "Capitol police still mobilizing for 2024 election security; January 6th trials ongoing."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 9,
+      "title": "Democratic Party: Generational Reckoning",
+      "subtitle": null,
+      "layout": "two_column",
+      "bullets": [
+        "Biden's age (82) and fitness questions dominate first six months of 2024 cycle.",
+        "Harris's ascent signals younger, more diverse party leadership emerging post-Biden era.",
+        "Progressive wing (AOC, Bernie, Squad) pushing $15 minimum wage, student debt forgiveness.",
+        "Centrists (Newsom, Shapiro) advocating incremental reform; growing party tension on radical change."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 10,
+      "title": "2025 Outlook: Governance and Key Battlegrounds",
+      "subtitle": null,
+      "layout": "three_column",
+      "bullets": [
+        "Trump administration focus: border enforcement, tariffs, and conservative judicial appointments.",
+        "Congressional investigations: Republicans targeting DOJ, FBI, IRS for perceived political weaponization.",
+        "2026 midterms setting stage: control of Senate and House redistricting map-drawing power at stake."
+      ],
+      "bg": "light"
+    },
+    {
+      "slide_number": 11,
+      "title": "Challenges: Trust, Misinformation, and Democratic Resilience",
+      "subtitle": null,
+      "layout": "bullets",
+      "bullets": [
+        "Only 31% trust media institutions; 47% distrust government to protect election integrity.",
+        "Foreign interference: Russia, China, Iran running targeted ads; impact difficult to measure.",
+        "Note: US courts, military, and states have rejected election fraud claims since 2020.",
+        "Democratic institutions stress-tested but holding: Congress certified results, courts upheld rule of law."
+      ],
+      "bg": "dark"
+    },
+    {
+      "slide_number": 12,
+      "title": "The Path Forward",
+      "subtitle": null,
+      "layout": "closing",
+      "bullets": [
+        "Engage locally: voting, town halls, and community organizing remain core democratic power."
+      ],
+      "bg": "light"
+    }
+  ]
+}

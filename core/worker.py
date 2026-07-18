@@ -85,6 +85,13 @@ async def process_presentation(doc: dict) -> None:
         outline = await generate_outline(prompt, slides, run_dir=None)
         print(f"[worker] outline ready  ({len(outline.get('slides', []))} slides)")
 
+        # Dump the outline locally for inspection (paired with deck.json later)
+        try:
+            from core.local_dump import dump_outline
+            dump_outline(pid, prompt, outline)
+        except Exception as dump_err:
+            print(f"[worker] local outline dump failed (non-fatal): {dump_err}")
+
         outline_id = await storage.create_outline_doc(
             presentation_id=pid,
             user_id=uid,

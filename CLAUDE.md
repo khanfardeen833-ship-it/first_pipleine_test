@@ -74,6 +74,8 @@ There is no requirements.txt. Python deps in use: `anthropic`, `claude-agent-sdk
 
 Both write artifacts to `workspace/<run-id>/` and produce `merged_deck.json`, which is gated through `validate.py` before storage/export.
 
+`core/merger.write_deck_outputs` runs `core/layout_fix.normalize_layout` on the merged deck first — deterministic geometry cleanup for the collision failure modes hand-authored coordinates produce: (1) an icon detached from its circle/ellipse badge → snapped to the badge center; (2) text overflowing the panel that contains it → panel grown downward to enclose it; (3) a kicker/eyebrow caption stacked on its title → lifted above it (or the title pushed down); (4) a paragraph overlapping a small non-background image → dropped below the image. Every mutation is guarded: it only moves an element when the target band is collision-free (hairline rules and any backdrop the element already sits on don't count), otherwise it leaves the collision flagged for the visual-QA loop rather than shoving elements into new overlaps. It mutates only changelog geometry, so both `merged_deck.json` and `editor_deck.json` reflect it. Prompt-side, the no-overlap rules in `skills/core/10-design-rules.md` aim to prevent these collisions at generation time.
+
 ### The Bildory deck format — invariants enforced by validate.py
 
 A deck has three files under `files`: `content`, `baseLayout`, `changelog`. The two structural rules that everything revolves around:

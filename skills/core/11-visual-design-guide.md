@@ -48,6 +48,7 @@ on every deck — match the mood and subject.
 | Deep Navy & Gold | `#0B1F3A` | `#C9A227` | `#F7F5F0` |
 | Graphite & Electric | `#1C1F26` | `#3E7BFA` | `#F5F7FA` |
 | Ivory Editorial | `#FFFFFF` | `#141414` | `#B4833E` |
+| Fresh Greens | `#7CB342` | `#DCEDC8` | `#F5D021` |
 
 **Match the palette to the topic's MOOD — do not default to dark/premium.**
 A dark, metallic palette on a fun or everyday subject reads wrong. Pick from the
@@ -55,8 +56,8 @@ bucket that fits:
 
 | Topic mood | Use these palettes |
 |------------|--------------------|
-| Playful / consumer / food & drink / lifestyle / kids / social / events | Coral Energy, Cherry Bold, Teal Trust, Ocean Gradient |
-| Wellness / nature / heritage / craft / education | Forest & Moss, Sage Calm, Warm Terracotta, Berry & Cream |
+| Playful / consumer / food & drink / lifestyle / kids / social / events | Coral Energy, Cherry Bold, Teal Trust, Ocean Gradient, Fresh Greens |
+| Wellness / nature / heritage / craft / education | Forest & Moss, Sage Calm, Warm Terracotta, Berry & Cream, Fresh Greens |
 | Tech / product / SaaS / data | Graphite & Electric, Midnight Executive, Ocean Gradient |
 | Premium / finance / luxury / executive / consulting | Noir & Champagne, Deep Navy & Gold, Charcoal Minimal, Ivory Editorial |
 

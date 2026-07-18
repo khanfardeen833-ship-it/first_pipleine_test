@@ -1404,6 +1404,29 @@ def _image_style(config: dict) -> str:
     return ", ".join(bits)
 
 
+def _backfill_image_prompts(specs: list, outline: dict) -> int:
+    """Safety net: an image element with neither `query` nor `image_prompt`
+    resolves to an empty src and renders as a blank box. When the planner emits
+    one, derive a prompt from that slide's own title/subtitle so it still gets a
+    picture (Pexels query or AI illustration) instead of a hole. Returns the
+    count backfilled."""
+    slides = outline.get("slides", [])
+    deck_title = outline.get("title", "") or "the topic"
+    n = 0
+    for i, spec in enumerate(specs):
+        s = slides[i] if i < len(slides) else {}
+        subject = (s.get("title") or s.get("subtitle") or deck_title).strip()
+        for el in (spec or {}).get("elements", []):
+            if el.get("kind") != "image":
+                continue
+            if not (str(el.get("query") or "").strip()
+                    or str(el.get("image_prompt") or "").strip()):
+                el["query"] = subject
+                el["image_prompt"] = f"a clean modern illustration representing {subject}"
+                n += 1
+    return n
+
+
 async def _resolve_images(specs: list, run_dir, config: dict) -> None:
     """Fill image-element `src`s using the configured provider.
 
@@ -1576,6 +1599,12 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         ])
         specs = [first_spec] + list(rest)
     t_gen = time.time() - t0
+
+    # Safety net: give any query-less image element a prompt from its slide so it
+    # renders a picture instead of an empty box (must run before resolution).
+    _bf = _backfill_image_prompts(specs, outline)
+    if _bf:
+        print(f"  [images] backfilled {_bf} image element(s) missing a query/prompt")
 
     # Resolve image-element `query` strings into real srcs BEFORE download. The
     # provider (Pexels stock search, or AI generation) is chosen by config/env;

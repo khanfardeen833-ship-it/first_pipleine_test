@@ -29,13 +29,24 @@ MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 DEFAULT_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "high")   # low|medium|high|auto
 MAX_CONCURRENCY = int(os.environ.get("OPENAI_IMAGE_CONCURRENCY", "4"))
 GEN_TIMEOUT = 180.0
+# transparent | opaque | auto. Use "transparent" for illustration/vector decks so
+# the art has no baked background rectangle — it then sits cleanly on ANY slide
+# color (a white-bg illustration on a dark slide looks like a pasted box).
+BACKGROUND = os.environ.get("OPENAI_IMAGE_BACKGROUND", "auto")
 
-# Neutral, brand-agnostic premium photographic direction appended to every
-# prompt. Keeps 8 images looking like one shoot; strips text/logo artefacts.
-_BASE_STYLE = ("professional editorial photograph, cinematic soft lighting, "
-               "shallow depth of field, refined muted color grade, minimal "
-               "clean composition, high detail, photorealistic, "
-               "no text, no watermark, no logos, no captions")
+# Shared base direction appended to every prompt so a deck's images read as ONE
+# art-directed set. Defaults to premium editorial PHOTOGRAPHY; override the whole
+# direction with OPENAI_IMAGE_STYLE to switch families — e.g. flat vector / 3D
+# illustration decks (Slidesgo/Freepik-style corporate templates):
+#   OPENAI_IMAGE_STYLE="flat 3D isometric vector illustration, corporate,
+#     bright blue and cyan palette, clean solid white background, soft rounded
+#     shapes, no text, no watermark, no logos"
+_DEFAULT_BASE_STYLE = (
+    "professional editorial photograph, cinematic soft lighting, "
+    "shallow depth of field, refined muted color grade, minimal "
+    "clean composition, high detail, photorealistic, "
+    "no text, no watermark, no logos, no captions")
+_BASE_STYLE = os.environ.get("OPENAI_IMAGE_STYLE", "").strip() or _DEFAULT_BASE_STYLE
 
 
 def _api_key():
@@ -109,9 +120,13 @@ async def generate_image_queries(specs, run_dir, *, style="", quality=None,
             return job, url
         async with sem:
             try:
+                # `background` isn't a typed kwarg in older openai SDKs (<1.66);
+                # pass it through extra_body so gpt-image-1 still honors it.
+                extra = ({"background": BACKGROUND}
+                         if BACKGROUND and BACKGROUND != "auto" else {})
                 resp = await client.images.generate(
                     model=MODEL, prompt=f"{prompt}. {style_suffix}",
-                    size=size, quality=quality, n=1)
+                    size=size, quality=quality, n=1, extra_body=extra)
                 fpath.write_bytes(base64.b64decode(resp.data[0].b64_json))
                 return job, url
             except Exception as e:  # noqa: BLE001 — never crash generation

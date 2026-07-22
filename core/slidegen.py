@@ -778,22 +778,6 @@ async def warm_static_prefix() -> None:
         print(f"  [slidegen] static prefix warm failed (non-fatal): {e}")
 
 
-async def _warm_executor_cache(client, model, system, usage_acc) -> None:
-    """1-token call with the executors' EXACT settings (forced tool, no
-    thinking) so their cache entry exists before they fan out. The cache
-    prefix is keyed on tools + tool_choice + thinking config, so the art
-    director's cache entry is unusable by the executors."""
-    resp = await client.messages.create(
-        model=model,
-        max_tokens=1,
-        system=system,
-        tools=[SLIDE_TOOL, DESIGN_PLAN_TOOL],
-        tool_choice={"type": "tool", "name": "emit_slide"},
-        messages=[{"role": "user", "content": "warm"}],
-    )
-    usage_acc.append(resp.usage)
-
-
 def _deck_seed(outline: dict) -> int:
     """Stable per-deck offset derived from the title, so two decks pick different
     archetypes for layouts that appear only once (chart/table/quote). Stable hash
@@ -1581,19 +1565,23 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     plans: dict = {}
 
     if mode == "director":
-        # The plan call STREAMS: each slide's executor launches the moment its
-        # plan entry is complete, overlapping slide generation with the rest
-        # of the planning. Executors gate on the cache warmer so every one of
-        # them hits the prompt cache instead of racing to write it.
+        # The design-plan call is the SOLE cache warmer. It touches the shared
+        # tools+system prefix (~17k) first and writes it to cache once; every
+        # executor then READS it. This works because tool_choice / thinking
+        # changes do NOT evict the tools+system cache tier (only the messages
+        # tier) — so the executors' emit_slide / no-think calls hit the plan
+        # call's entry instead of each racing to write their own. Executors
+        # launch as their plan entries stream in; by the time any entry lands
+        # the plan response is already streaming, so its cache write has landed
+        # and every executor is a cache read. (A separate executor cache-warmer
+        # used to run here; it was redundant — same tools+system prefix — and,
+        # racing the plan call, doubled the cache write for no quality gain.)
         print(f"  [slidegen] art director planning {len(slides)} slides "
               f"(effort={THINKING_EFFORT}; streaming — slides start as their "
               f"plan entries land)")
-        warm_task = asyncio.create_task(
-            _warm_executor_cache(client, model, system, usage_acc))
         slide_tasks: dict[int, asyncio.Task] = {}
 
         async def _run_slide(i: int, plan_text: str | None):
-            await warm_task  # cache entry must exist before executors fan out
             return await _generate_one(client, model, system, outline,
                                        slides[i - 1], i, usage_acc,
                                        archetypes[i - 1], neighbors_of(i),
@@ -1616,7 +1604,6 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         except BaseException:
             for t in slide_tasks.values():
                 t.cancel()
-            warm_task.cancel()
             raise
         t_warm = time.time() - t0
         print(f"  [slidegen] plan complete in {t_warm:.1f}s — "

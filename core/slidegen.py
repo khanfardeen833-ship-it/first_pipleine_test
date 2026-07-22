@@ -36,6 +36,7 @@ from core.layouts import (
     selected_layouts_block, estimate_tokens,
 )
 from core.merger import merge_presentations, write_deck_outputs
+from core.pricing import get_pricing, calculate_cost
 from deck_builder import Deck
 
 ID_OFFSET_PER_SLIDE = 100   # each slide owns a 100-wide element ID / zIndex band
@@ -1228,7 +1229,51 @@ def _log_attempt(retry_log, phase, slide_number, attempt, *, outcome,
     })
 
 
-def _summarize_retries(retry_log: list) -> dict:
+def _price_usage(usage_acc: list, model: str) -> dict:
+    """Sum raw Anthropic usage objects and price them via core.pricing — the
+    single source of truth for rates (no hardcoded numbers). Splits the
+    ephemeral 5m/1h cache-creation breakdown so the correct per-TTL write rate
+    applies (slidegen writes 5-minute cache -> $6.25/M on Opus, not the $10/M
+    1h rate). Returns cost_usd = None for unknown models, matching the
+    'unknown model IDs silently disable cost tracking' contract."""
+    agg = {"input_tokens": 0, "output_tokens": 0,
+           "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+           "ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0}
+    for u in usage_acc:
+        agg["input_tokens"]  += getattr(u, "input_tokens", 0) or 0
+        agg["output_tokens"] += getattr(u, "output_tokens", 0) or 0
+        agg["cache_creation_input_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+        agg["cache_read_input_tokens"]     += getattr(u, "cache_read_input_tokens", 0) or 0
+        cc = getattr(u, "cache_creation", None)
+        if cc is not None:
+            agg["ephemeral_5m_input_tokens"] += getattr(cc, "ephemeral_5m_input_tokens", 0) or 0
+            agg["ephemeral_1h_input_tokens"] += getattr(cc, "ephemeral_1h_input_tokens", 0) or 0
+    rates, _known = get_pricing(model)
+    bd = calculate_cost(rates, agg)
+    return {
+        "input_tokens":  agg["input_tokens"],
+        "output_tokens": agg["output_tokens"],
+        "cache_write":   bd["cache_write_tok"],
+        "cache_read":    bd["cache_read_tok"],
+        "cost_usd":      round(bd["total"], 4) if bd["total"] is not None else None,
+    }
+
+
+def _price_flat(model: str, *, input_tokens=0, output_tokens=0,
+                cache_write=0, cache_read=0) -> float | None:
+    """Price already-summed token counts via core.pricing. cache_write is
+    treated as 5-minute (what slidegen writes). None for unknown models."""
+    rates, _known = get_pricing(model)
+    bd = calculate_cost(rates, {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "ephemeral_5m_input_tokens": cache_write,
+        "cache_read_input_tokens": cache_read,
+    })
+    return round(bd["total"], 4) if bd["total"] is not None else None
+
+
+def _summarize_retries(retry_log: list, model: str) -> dict:
     """Aggregate per-attempt records into deck-level retry metrics."""
     def _agg(events):
         by_slide: dict = {}
@@ -1263,13 +1308,14 @@ def _summarize_retries(retry_log: list) -> dict:
                 "final_elements": accepted["elements"] if accepted else None,
                 "reasons": [e["reason"] for e in non_accepted],
             })
-        # same Opus rates used for stats["cost_usd"]: in $5/M, out $25/M,
-        # 5m-cache write $6.25/M, read $0.5/M
-        extra_cost = round(
-            wasted["input"] * 5 / 1e6
-            + wasted["output"] * 25 / 1e6
-            + wasted["cache_write"] * 6.25 / 1e6
-            + wasted["cache_read"] * 0.5 / 1e6, 4)
+        # Priced via core.pricing (single source of truth), model-correct.
+        extra_cost = _price_flat(
+            model,
+            input_tokens=wasted["input"],
+            output_tokens=wasted["output"],
+            cache_write=wasted["cache_write"],
+            cache_read=wasted["cache_read"],
+        ) or 0.0
         return {
             "slides": len(by_slide),
             "accepted_first_try": first_try,
@@ -1665,24 +1711,18 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
         print(f"  [slidegen] unmasked {unmasked} image(s) hidden behind an opaque frame")
     t_total = time.time() - t0
 
+    # Priced via core.pricing (single source of truth). This is the pre-QA
+    # snapshot; if visual QA runs, cost/tokens are recomputed below once the
+    # regenerations have landed in usage_acc and the judge cost is folded in.
     stats = {
         "mode": mode,
         "slides": len(slides),
         "warmup_seconds": round(t_warm, 1),
         "generation_seconds": round(t_gen, 1),
         "total_seconds": round(t_total, 1),
-        "input_tokens": sum(u.input_tokens for u in usage_acc),
-        "output_tokens": sum(u.output_tokens for u in usage_acc),
-        "cache_write": sum(getattr(u, "cache_creation_input_tokens", 0) or 0 for u in usage_acc),
-        "cache_read": sum(getattr(u, "cache_read_input_tokens", 0) or 0 for u in usage_acc),
+        **_price_usage(usage_acc, model),
         "api_calls": len(usage_acc),
     }
-    # Opus pricing: in $5/M, out $25/M, 5m-cache write $6.25/M, read $0.5/M
-    stats["cost_usd"] = round(
-        stats["input_tokens"] * 5 / 1e6
-        + stats["output_tokens"] * 25 / 1e6
-        + stats["cache_write"] * 6.25 / 1e6
-        + stats["cache_read"] * 0.5 / 1e6, 4)
 
     if run_dir is not None:
         run_dir = Path(run_dir)
@@ -1880,11 +1920,31 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
                 print(f"  [visual-qa] skipped — unavailable or failed "
                       f"({type(_qa_err).__name__}: {_qa_err}); shipping deck "
                       f"without QA (install playwright to enable).")
-        stats["retries"] = _summarize_retries(retry_log)
+        # Authoritative cost: recompute from usage_acc now that any QA
+        # regenerations have landed in it (the pre-QA snapshot missed them),
+        # and fold in the Sonnet visual-QA judge cost so cost_usd reflects the
+        # WHOLE run. gen_cost_usd keeps the slide-generation total (incl. QA
+        # regens); judge cost is broken out under visual_qa.
+        stats.update(_price_usage(usage_acc, model))
+        stats["api_calls"] = len(usage_acc)
+        stats["gen_cost_usd"] = stats["cost_usd"]
+        qa = stats.get("visual_qa")
+        judge_cost = 0.0
+        if qa and qa.get("judge_tokens"):
+            jt = qa["judge_tokens"]
+            qa_model = os.environ.get("ANTHROPIC_QA_MODEL", "claude-sonnet-4-6")
+            qa["judge_cost_usd"] = _price_flat(
+                qa_model,
+                input_tokens=jt.get("input", 0) or 0,
+                output_tokens=jt.get("output", 0) or 0)
+            judge_cost = qa["judge_cost_usd"] or 0.0
+        if stats["cost_usd"] is not None:
+            stats["cost_usd"] = round(stats["cost_usd"] + judge_cost, 4)
+        stats["retries"] = _summarize_retries(retry_log, model)
         _print_retry_summary(stats["retries"])
         (run_dir / "slidegen_stats.json").write_text(
             json.dumps(stats, indent=2), encoding="utf-8")
     else:
-        stats["retries"] = _summarize_retries(retry_log)
+        stats["retries"] = _summarize_retries(retry_log, model)
         _print_retry_summary(stats["retries"])
     return merged, stats

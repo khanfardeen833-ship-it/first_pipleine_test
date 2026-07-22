@@ -25,7 +25,7 @@ in a relevant `src` for you. Examples:
 Images (photos, GIFs) live at the file level in `content.imageElements`.
 The changelog entry carries position, size, and several required blocks
 (shadow, border, cropRect, focusPoint). `deck_builder.py` emits all required
-blocks automatically — in `build.py` you only pass values you want to change.
+blocks automatically — you only set values you want to change.
 
 ## content record (inside `content.imageElements` array)
 
@@ -299,33 +299,3 @@ The resolved URLs look like this (you don't write them by hand):
 ```
 https://images.pexels.com/photos/{PHOTO_ID}/pexels-photo-{PHOTO_ID}.jpeg?auto=compress&cs=tinysrgb&h=650&w=940
 ```
-
-## How to call slide.add_image() — signature reference
-
-Use `slide.add_image()` directly in build.py. All fields are named parameters.
-**Pass only the parameters you change from their defaults** — the builder fills
-the rest. Available parameters and their defaults:
-
-```python
-slide.add_image(
-    "https://images.pexels.com/photos/ID/pexels-photo-ID.jpeg?auto=compress&cs=tinysrgb&h=650&w=940",
-    x=720, y=0, width=560, height=720,   # required
-    # everything below is optional — shown with its DEFAULT; omit unless changed
-    is_background=False,
-    border_radius=0,
-    opacity=1,
-    rotation=0,
-    object_fit="cover",
-    filter="none",    # none|noir|gray|sepia|vintage|warm|cool|crossprocess|bright|dark|faded|matte|dynamic|vibrant|dramatic|soft
-    blur=0,
-    scale_x=1, scale_y=1,                 # -1 = flip (x = horizontal)
-    shadow={"enabled": False},            # partial dict, merges over defaults
-    border={"type": "none"},              # "none" | "standard" | "special" (+ specialStyle)
-    overlay={"color": None, "opacity": 0, "blendMode": "normal"},
-    crop_ratio="free",                    # free|1:1|4:3|16:9|3:2|ellipse
-    crop_rect={"left": 0, "top": 0, "right": 0, "bottom": 0},  # NOT merged — complete dict
-    focus_point={"x": 50, "y": 50},       # NOT merged — pass complete dict if used
-)
-```
-
-**Important**: always use the named parameters above, never pass these via `changelog={}`.

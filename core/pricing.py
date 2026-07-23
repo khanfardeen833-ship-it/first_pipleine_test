@@ -19,6 +19,15 @@ KNOWN_PRICING = {
         "cache_write_1h": 10.00,
         "cache_read":      0.50,
     },
+    "claude-sonnet-5": {
+        # standard rates (durable) — intro $2/$10 runs through 2026-08-31, but
+        # the adopt/revert decision should be made on the lasting price
+        "input":           3.00,
+        "output":         15.00,
+        "cache_write_5m":  3.75,
+        "cache_write_1h":  6.00,
+        "cache_read":      0.30,
+    },
     "claude-sonnet-4-6": {
         "input":           3.00,
         "output":         15.00,

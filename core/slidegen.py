@@ -767,7 +767,7 @@ async def warm_static_prefix() -> None:
         system = [{
             "type": "text",
             "text": _skills_block() + "\n\n---\n\n" + _SPEC_INSTRUCTIONS,
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": _skills_cache_control(),
         }]
         await client.messages.create(
             model=model, max_tokens=1, system=system,
@@ -860,6 +860,23 @@ def assign_archetypes(slides: list, seed: int = 0) -> list:
     return out
 
 
+def _skills_cache_control() -> dict:
+    """cache_control for the stable, outline-INDEPENDENT skills block (block 1).
+    That block is byte-identical across every deck, so a 1-hour TTL lets decks
+    generated within the hour READ it (~0.1x) instead of re-writing it (~1.25x)
+    each time — a real saving when decks are produced in bursts. It is OFF by
+    default (5-min ephemeral) because a 1h write costs 2x and only pays off
+    after ~2 reads inside the hour, so it would slightly *raise* cost for
+    isolated one-off decks. Flip it on for batch / high-volume runs with
+    SLIDEGEN_SKILLS_CACHE_TTL=1h. Per-deck blocks (layouts, brief+outline) are
+    never stable across decks, so they always stay 5-min ephemeral. Caching
+    only — no effect on generated output."""
+    ttl = os.environ.get("SLIDEGEN_SKILLS_CACHE_TTL", "5m").strip().lower()
+    if ttl in ("1h", "60m", "1hr", "hour", "3600"):
+        return {"type": "ephemeral", "ttl": "1h"}
+    return {"type": "ephemeral"}
+
+
 def build_slidegen_system(outline: dict, config: dict,
                           selected_layouts: list | None = None) -> list:
     """System blocks, each cached (ephemeral):
@@ -907,7 +924,7 @@ FULL DECK OUTLINE (for narrative + visual-rhythm context):
         {
             "type": "text",
             "text": _skills_block() + "\n\n---\n\n" + _SPEC_INSTRUCTIONS,
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": _skills_cache_control(),
         },
     ]
     if selected_layouts:
@@ -1498,7 +1515,13 @@ async def generate_deck_per_slide(outline: dict, config: dict | None = None,
     mode = mode or os.environ.get("SLIDEGEN_MODE", DEFAULT_MODE)
     if mode not in ("fast", "premium", "director"):
         raise ValueError(f"unknown SLIDEGEN_MODE: {mode!r}")
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+    # Slide model = design-plan + executors. SLIDEGEN_SLIDE_MODEL overrides
+    # ANTHROPIC_MODEL for these (leaving the outline + visual-QA judge models
+    # untouched), so a cheaper/faster model can be A/B-tested for the slide
+    # drawing while the judge stays the quality gate. Plan and executors share
+    # it so the prompt cache stays single-model (keeps the warm-once win).
+    model = (os.environ.get("SLIDEGEN_SLIDE_MODEL", "").strip()
+             or os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8"))
     client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     slides = outline.get("slides", [])
